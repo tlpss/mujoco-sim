@@ -21,7 +21,7 @@ jobs:
             ${{ runner.os }}-conda-${{ env.CACHE_NUMBER}}-${{hashFiles('environment.yaml')}}
       - uses: conda-incubator/setup-miniconda@v2
         with:
-          activate-environment: dummy-environment # name of env
+          activate-environment: mujoco-sim # name of env
           channel-priority: strict
           auto-activate-base: false
           environment-file: environment.yaml
