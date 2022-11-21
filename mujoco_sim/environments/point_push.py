@@ -4,7 +4,7 @@ import numpy as np
 from dm_control import composer
 from dm_env import specs
 
-from mujoco_sim.models.point_mass import PointMass
+from mujoco_sim.models.point_mass import PointMass2D
 from mujoco_sim.models.walled_arena import WalledArena
 
 REWARD_TYPES = ("shaped", "sparse")
@@ -17,7 +17,7 @@ class Config:
     observation_space = "state"
     max_step_size: float = 0.02
     physics_timestep: float = 0.002  # MJC default
-    control_timestep: float = 0.02
+    control_timestep: float = 0.004
 
 
 class PointMassReachTask(composer.Task):
@@ -48,9 +48,10 @@ class PointMassReachTask(composer.Task):
 
         # arena is the convention name for the root of the Entity tree
         self._arena = WalledArena()
-        self.pointmass = PointMass(parent=self._arena.mjcf_model)
+        self.pointmass = PointMass2D()
+        self._arena.attach(self.pointmass)
         self.target = self._arena.mjcf_model.worldbody.add(
-            "geom", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
+            "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
         )
         self.distance_to_target = 1.0
         self.config = Config() if config is None else config
@@ -78,9 +79,11 @@ class PointMassReachTask(composer.Task):
         # but if you override action_spec, this probably won't work
         # super().before_step(physics, action, random_state)
         assert action.shape == (2,)
-        position = np.ones(3) * self.pointmass.radius
-        position[:2] = np.copy(action)
-        self.pointmass.set_target_position(physics, position)
+
+        # get current position.
+        current_position = self.pointmass.get_position(physics)
+        target_position = current_position + action
+        self.pointmass.set_target_position(physics, target_position)
 
     def after_step(self, physics, random_state):
         self.distance_to_target = np.linalg.norm(
@@ -90,6 +93,8 @@ class PointMassReachTask(composer.Task):
     def get_reward(self, physics):
         return -self.distance_to_target
 
+    # TODO:
+    # should terminate and get_discount (to have termination vs truncation)
     def action_spec(self, physics):
         # if the action space matches the 'actuation space', dm_control will handle this by just broadcasting all the actuators
         # TODO: take super class action space and extend
