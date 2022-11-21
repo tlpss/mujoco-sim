@@ -56,7 +56,9 @@ class PointMass2D(composer.Entity):
         """
 
         # the actual pointmass
-        self.pointmass = self._model.worldbody.add("body", name="pointmass_body", pos=[0.0, 0.0, self.radius])
+        self.pointmass: mjcf.Element = self._model.worldbody.add(
+            "body", name="pointmass_body", pos=[0.0, 0.0, self.radius]
+        )
         self.pointmass.add("geom", type="sphere", size=[self.radius], mass=self.mass, rgba=[255, 0, 0, 0.5])
 
         # free joint would be the easiest option, but these required the body to be child of worldbody, which is incompatible
@@ -67,16 +69,14 @@ class PointMass2D(composer.Entity):
         # this is what they do in the dm_control paper for the creatures.
 
         # so create slide joints for X,Y positions (in 6DOF you have to add balljoint and Z slider)
-        self.x_joint = self.pointmass.add("joint", name="pointmass_x", type="slide", axis=[1, 0, 0])
-        self.y_joint = self.pointmass.add("joint", name="pointmass_y", type="slide", axis=[0, 1, 0])
+        self.x_joint: mjcf.Element = self.pointmass.add("joint", name="pointmass_x", type="slide", axis=[1, 0, 0])
+        self.y_joint: mjcf.Element = self.pointmass.add("joint", name="pointmass_y", type="slide", axis=[0, 1, 0])
+        # self._model.equality.add("weld", name="mocap_to_mass_weld", body1=self.mocap.full_identifier, body2=self.pointmass.full_identifier)
 
         if self.mocap is None:
             self.mocap = build_mocap(self._model, "pointmass_mocap")
             # weld body to mocap to have it track the mocap
             # this way the teleporting has no impact on the physics.
-            self._model.equality.add(
-                "weld", name="mocap_to_mass_weld", body1=self.mocap.name, body2=self.pointmass.name
-            )
 
     @property
     def mjcf_model(self):
@@ -112,11 +112,16 @@ class PointMass2D(composer.Entity):
         # so you always have to do the 'inverse kinematics' from cartesian space to joint space
         # but since we have two slide joints, the inverse kinematics are simply q1,q2 = x,y
 
-        physics.named.data.qpos[self.x_joint.name] = position[0]
-        physics.named.data.qpos[self.y_joint.name] = position[1]
+        # use full identifier to make sure that after attaching to other elements
+        # the joint name still reflects the xml joint name
+        # arena.attach(model) will add a namespace for alle mjcf elements in the model
+        # x_joint.name will still be 'pointmass_x', although the element in the xml
+        # will be named '<model_name>/<joint_name>' so using .name would result in an error.
+        physics.named.data.qpos[self.x_joint.full_identifier] = position[0]
+        physics.named.data.qpos[self.y_joint.full_identifier] = position[1]
 
-        physics.named.data.qvel[self.x_joint.name] = 0.0
-        physics.named.data.qvel[self.y_joint.name] = 0.0
+        physics.named.data.qvel[self.x_joint.full_identifier] = 0.0
+        physics.named.data.qvel[self.y_joint.full_identifier] = 0.0
 
         # also reset the mocap
         self.set_target_position(physics, position)
