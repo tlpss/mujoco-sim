@@ -4,7 +4,8 @@ import numpy as np
 from dm_control import composer
 from dm_env import specs
 
-from mujoco_sim.models.point_mass import PointMass2D
+from mujoco_sim.models.point_mass import PointMass2D, build_mocap
+from mujoco_sim.models.utils import write_xml
 from mujoco_sim.models.walled_arena import WalledArena
 
 REWARD_TYPES = ("shaped", "sparse")
@@ -44,15 +45,26 @@ class PointMassReachTask(composer.Task):
     """
 
     def __init__(self, config: Config = None) -> None:
-        super().__init__()
-
         # arena is the convention name for the root of the Entity tree
         self._arena = WalledArena()
-        self.pointmass = PointMass2D()
+
+        # have to define the mocap here to make sure it is a child of the worldboddy...
+        mocap = build_mocap(self._arena.mjcf_model, "pointmass_mocap")
+        self.pointmass = PointMass2D(mocap=mocap)
         self._arena.attach(self.pointmass)
+        # after attaching, the name has changed but the name of the MJCF elements is not changed?? -> add the prefix manually for the weld.
+        self._arena.mjcf_model.equality.add(
+            "weld",
+            name="mocap_to_mass_weld",
+            body1=mocap.name,
+            body2=f"{PointMass2D._ROOT_ELEMENT_NAME}/{self.pointmass.pointmass.name}",
+        )
+
         self.target = self._arena.mjcf_model.worldbody.add(
             "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
         )
+        write_xml(self._arena.mjcf_model)
+
         self.distance_to_target = 1.0
         self.config = Config() if config is None else config
 
@@ -65,7 +77,7 @@ class PointMassReachTask(composer.Task):
         # TODO: should this happen here or in the initialize MJCF?
         # TODO: seems to have no effect?
         # set random target position
-        physics.bind(self.target).pos = np.array([[0.25, 0.4, 0.01]])
+        physics.bind(self.target).pos = np.array([[0.25, -0.4, 0.01]])
         # set random pointmass start position
         physics.bind(self.pointmass.pointmass).pos = np.array([0.10, 0.0, self.pointmass.radius])
         physics.bind(self.pointmass.mocap).pos = np.array([0.10, 0.0, self.pointmass.radius])

@@ -4,6 +4,18 @@ import numpy as np
 from dm_control import composer, mjcf
 
 
+def build_mocap(model: mjcf.RootElement, name: str) -> mjcf.Element:
+    # mocap -> 'teleporting bodies'
+    # https://github.com/deepmind/mujoco/issues/433
+    # https://mujoco.readthedocs.io/en/latest/modeling.html?highlight=mocap#mocap-bodies
+    mocap = model.worldbody.add("body", name=name, pos=[0.0, 0.0, 0.0], mocap=True)
+
+    # use site to make the mocap geometry object 'visual only' (no collisions)
+    # https://mujoco.readthedocs.io/en/latest/XMLreference.html?highlight=site#body-site
+    mocap.add("site", type="sphere", size=[0.005])
+    return mocap
+
+
 class PointMass2D(composer.Entity):
     """
     A very simple Pointmass Entity:
@@ -20,7 +32,9 @@ class PointMass2D(composer.Entity):
     Additionally they can define observables and implement some of the many callbacks from section 5.3 of the dm_control paper
     """
 
-    def __init__(self, radius: float = 0.02, mass: float = 0.1) -> None:
+    _ROOT_ELEMENT_NAME = "pointmass"
+
+    def __init__(self, radius: float = 0.02, mass: float = 0.1, mocap=None) -> None:
         """
         _model: the xml tree is built top-down, to make sure that you always have acces to entire scene so far,
         including the worldbody (for creating mocaps, which have to be children of the worldbody)
@@ -28,9 +42,9 @@ class PointMass2D(composer.Entity):
         """
         self.mass = mass
         self.radius = radius
-
+        self.mocap = mocap
         # instantiate a MJCF model to start building on.
-        self._model = mjcf.RootElement("pointmass")
+        self._model = mjcf.RootElement(self._ROOT_ELEMENT_NAME)
         # call the super init, which handles the building
         super().__init__()
 
@@ -40,15 +54,6 @@ class PointMass2D(composer.Entity):
 
         It can do this procedurally, as is done here, or it can do this by loading a static XML file.
         """
-
-        # mocap -> 'teleporting bodies'
-        # https://github.com/deepmind/mujoco/issues/433
-        # https://mujoco.readthedocs.io/en/latest/modeling.html?highlight=mocap#mocap-bodies
-        self.mocap = self._model.worldbody.add("body", name="pointmass_mocap", pos=[0.0, 0.0, self.radius], mocap=True)
-
-        # use site to make the mocap geometry object 'visual only' (no collisions)
-        # https://mujoco.readthedocs.io/en/latest/XMLreference.html?highlight=site#body-site
-        self.mocap.add("site", type="sphere", size=[0.005])
 
         # the actual pointmass
         self.pointmass = self._model.worldbody.add("body", name="pointmass_body", pos=[0.0, 0.0, self.radius])
@@ -65,9 +70,13 @@ class PointMass2D(composer.Entity):
         self.x_joint = self.pointmass.add("joint", name="pointmass_x", type="slide", axis=[1, 0, 0])
         self.y_joint = self.pointmass.add("joint", name="pointmass_y", type="slide", axis=[0, 1, 0])
 
-        # weld body to mocap to have it track the mocap
-        # this way the teleporting has no impact on the physics.
-        self._model.equality.add("weld", name="mocap_to_mass_weld", body1=self.mocap.name, body2=self.pointmass.name)
+        if self.mocap is None:
+            self.mocap = build_mocap(self._model, "pointmass_mocap")
+            # weld body to mocap to have it track the mocap
+            # this way the teleporting has no impact on the physics.
+            self._model.equality.add(
+                "weld", name="mocap_to_mass_weld", body1=self.mocap.name, body2=self.pointmass.name
+            )
 
     @property
     def mjcf_model(self):
@@ -103,11 +112,14 @@ class PointMass2D(composer.Entity):
         # so you always have to do the 'inverse kinematics' from cartesian space to joint space
         # but since we have two slide joints, the inverse kinematics are simply q1,q2 = x,y
 
-        physics.named.data.qpos[self.x_joint] = position[0]
-        physics.named.data.qpos[self.y_joint] = position[1]
+        physics.named.data.qpos[self.x_joint.name] = position[0]
+        physics.named.data.qpos[self.y_joint.name] = position[1]
 
-        physics.named.data.qvel[self.x_joint] = 0.0
-        physics.named.data.qvel[self.y_joint] = 0.0
+        physics.named.data.qvel[self.x_joint.name] = 0.0
+        physics.named.data.qvel[self.y_joint.name] = 0.0
+
+        # also reset the mocap
+        self.set_target_position(physics, position)
 
     # control API
     def set_target_position(self, physics: mjcf.Physics, target_position: np.ndarray):
@@ -140,6 +152,6 @@ if __name__ == "__main__":
         # set the mocap target position
         pointmass.set_target_position(physics, np.array([0.05, 0.04]))
         print(f"{physics.named.data.xpos}")
-        print(pointmass.position(physics))
+        print(pointmass.get_position(physics))
         physics.step()
-    pointmass.reset_position(physics, [])
+    # pointmass.reset_position(physics, [])
