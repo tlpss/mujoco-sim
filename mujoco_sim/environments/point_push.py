@@ -19,9 +19,10 @@ OBSERVATION_TYPES = ("state", "visual")
 class Config:
     reward: str = DENSE_POTENTIAL_REWARD
     observation_space = "state"
-    max_step_size: float = 0.02
+    max_step_size: float = 0.5
     physics_timestep: float = 0.002  # MJC default
-    control_timestep: float = 0.004
+    control_timestep: float = 0.06  # 30 physics steps
+    max_control_steps: int = 50
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) <
 
@@ -90,7 +91,6 @@ class PointMassReachTask(composer.Task):
 
         # pose randomisations should happen here.
         #  Varying number of objects should probably happen in the initialize_episode_mjcf
-
         # set random target position
         goal_x = random_state.uniform(
             self._arena.X_RANGE[0] + self.pointmass.radius, self._arena.X_RANGE[1] - self.pointmass.radius
@@ -117,19 +117,20 @@ class PointMassReachTask(composer.Task):
         # but if you override action_spec, this probably won't work
         # super().before_step(physics, action, random_state)
         assert action.shape == (2,)
-
         # get current position.
         current_position = self.pointmass.get_position(physics)
         target_position = current_position + action
+        target_position = np.clip(target_position, self._arena.X_RANGE[0], self._arena.X_RANGE[1])
         self.pointmass.set_target_position(physics, target_position)
 
     def after_step(self, physics, random_state):
         # update metrics for reward & termination
         self.previous_distance_to_target = np.copy(self.distance_to_target)
         self.distance_to_target = np.linalg.norm(
-            self.pointmass.global_vector_to_local_frame(physics, physics.bind(self.target).pos)
+            self.pointmass.get_position(physics) - physics.bind(self.target).pos[:2]
         )
 
+    # print(f"{self.pointmass.get_position(physics)} -> {self._goal_position(physics)}")
     def get_reward(self, physics):
         del physics  # unused
 
@@ -137,12 +138,22 @@ class PointMassReachTask(composer.Task):
             return self.distance_to_target < self.config.goal_distance_threshold
         elif self.config.reward == DENSE_POTENTIAL_REWARD:
             # potential shaped reward
-            return self.previous_distance_to_target - self.distance_to_target
+            return -self.distance_to_target
+
+    def _max_time_exceeded(self, physics):
+        return physics.data.time > self.config.max_control_steps * self.config.control_timestep
 
     def should_terminate_episode(self, physics):
-        del physics  # unused
 
-        return self.distance_to_target < self.config.goal_distance_threshold
+        time_limit_reached = self._max_time_exceeded(physics)
+        goal_reached = self.distance_to_target < self.config.goal_distance_threshold
+        done = time_limit_reached or goal_reached
+        return done
+
+    def get_discount(self, physics):
+        if self.distance_to_target < self.config.goal_distance_threshold:
+            return 0.0  # true terminal state
+        return 1.0
 
     def action_spec(self, physics):
         del physics
