@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from dm_control import composer, mjcf
+from dm_control.composer.observation import observable
 
 
 def build_mocap(model: mjcf.RootElement, name: str) -> mjcf.Element:
@@ -144,6 +145,31 @@ class PointMass2D(composer.Entity):
         assert target_position.shape == (2,)
         physics.named.data.mocap_pos[self.mocap.name][:2] = target_position
 
+    def _build_observables(self):
+        """build the observables. This a the dm_control way to structure the code for generating observations
+        each observable can then be turned ON or OFF in a `task`. random delays, aggregations, distorters etc can also be applied
+        later on.
+        """
+        return PointMassObservables(self)
+
+
+class PointMassObservables(composer.Observables):
+    """Observables for pointmas 2D"""
+
+    _entity: PointMass2D  # typing
+
+    # if you want to expose joints, this is how to do it:
+
+    # @composer.observable
+    # def joint_positions(self) -> observable.MJCFFeature:
+    #     return observable.MJCFFeature(kind="qpos",mjcf_element=[self._entity.x_joint,self._entity.y_joint])
+
+    @composer.observable
+    def position(self) -> observable.Generic:
+        obs = observable.Generic(raw_observation_callable=self._entity.get_position)
+        # obs.array_spec = specs.Array((2,),np.float32)
+        return obs
+
 
 if __name__ == "__main__":
     from mujoco_sim.models.utils import write_xml
@@ -157,6 +183,13 @@ if __name__ == "__main__":
         # set the mocap target position
         pointmass.set_target_position(physics, np.array([0.05, 0.04]))
         print(f"{physics.named.data.xpos}")
-        print(pointmass.get_position(physics))
         physics.step()
-    # pointmass.reset_position(physics, [])
+
+    # check if both are equal
+    print(pointmass.get_position(physics))
+    print(pointmass.observables.position(physics))
+    # check if reset works
+
+    with physics.reset_context():
+        pointmass.reset_position(physics, np.array([0.12, 0.13]))
+    print(pointmass.observables.position(physics))

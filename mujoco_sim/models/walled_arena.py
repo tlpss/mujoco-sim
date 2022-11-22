@@ -6,6 +6,8 @@ WALLED_ARENA_XML = "walled_arena.xml"
 
 
 class WalledArena(composer.Entity):
+    X_RANGE = (-0.5, 0.5)
+    Y_RANGE = X_RANGE
     """An empty walled 0.5x0.5m arena for PointMass environments"""
 
     def __init__(self, radius: float = 0.02, mass: float = 0.1) -> None:
