@@ -67,7 +67,7 @@ class DMCWrapper(gym.Env):
         env: Environment,
         seed: int = 2022,
         flatten_observation_space: bool = True,
-        render_camera_id=0,
+        render_camera_id=-1,  # the free camera that is always available.
         render_dims: tuple[int, int] = (96, 96),
     ):
         self.flatten_observation_space = flatten_observation_space
@@ -143,7 +143,7 @@ class DMCWrapper(gym.Env):
     def render(self, mode="rgb_array"):
         assert mode == "rgb_array", "only support rgb_array mode, given %s" % mode
         height, width = self.render_dims
-        return self._env.physics.render(height=height, width=width, camera_id=self.render)
+        return self._env.physics.render(height=height, width=width, camera_id=self._camera_id)
 
 
 if __name__ == "__main__":
@@ -157,7 +157,8 @@ if __name__ == "__main__":
     obs = gym_env.reset()
     print(f"{obs=}")
     obs, reward, done, info = gym_env.step(gym_env.action_space.sample())
-    # img = gym_env.render()
+    img = gym_env.render()
+    print(img.shape)
     print(f"{obs=}")
     print(f"{reward=}")
     print(f"{info=}")
