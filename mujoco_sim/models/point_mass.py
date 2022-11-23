@@ -44,6 +44,8 @@ class PointMass2D(composer.Entity):
         self.mass = mass
         self.radius = radius
         self.mocap = mocap
+
+        self.physics = None
         # instantiate a MJCF model to start building on.
         self._model = mjcf.RootElement(self._ROOT_ELEMENT_NAME)
         # call the super init, which handles the building
@@ -72,18 +74,27 @@ class PointMass2D(composer.Entity):
         # so create slide joints for X,Y positions (in 6DOF you have to add balljoint and Z slider)
         self.x_joint: mjcf.Element = self.pointmass.add("joint", name="pointmass_x", type="slide", axis=[1, 0, 0])
         self.y_joint: mjcf.Element = self.pointmass.add("joint", name="pointmass_y", type="slide", axis=[0, 1, 0])
-        # self._model.equality.add("weld", name="mocap_to_mass_weld", body1=self.mocap.full_identifier, body2=self.pointmass.full_identifier)
 
         if self.mocap is None:
             self.mocap = build_mocap(self._model, "pointmass_mocap")
             # weld body to mocap to have it track the mocap
             # this way the teleporting has no impact on the physics.
+            self._model.equality.add(
+                "weld",
+                name="mocap_to_mass_weld",
+                body1=self.mocap.full_identifier,
+                body2=self.pointmass.full_identifier,
+            )
+
+    def initialize_episode(self, physics, random_state):
+        self.physics = physics
+        return super().initialize_episode(physics, random_state)
 
     @property
     def mjcf_model(self):
         return self._model
 
-    def get_position(self, physics: mjcf.Physics) -> np.ndarray:
+    def get_position(self, physics=None) -> np.ndarray:
         """get the current position of the pointmass
 
         Args:
@@ -92,7 +103,8 @@ class PointMass2D(composer.Entity):
         Returns:
             (np.ndarray): [X,Y]
         """
-
+        physics = physics or self.physics
+        assert physics is not None
         return physics.bind(self.pointmass).xpos[:2]
 
     def reset_position(self, physics: mjcf.Physics, position: np.ndarray):
@@ -179,6 +191,7 @@ if __name__ == "__main__":
     write_xml(model)
 
     physics = mjcf.Physics.from_mjcf_model(model)
+    pointmass.initialize_episode(physics, None)
     for _ in range(50):  # default timestep  = 2ms
         # set the mocap target position
         pointmass.set_target_position(physics, np.array([0.05, 0.04]))
@@ -186,7 +199,7 @@ if __name__ == "__main__":
         physics.step()
 
     # check if both are equal
-    print(pointmass.get_position(physics))
+    print(pointmass.get_position())
     print(pointmass.observables.position(physics))
     # check if reset works
 
