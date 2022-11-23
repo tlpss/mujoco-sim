@@ -116,6 +116,10 @@ class PointMassReachTask(composer.Task):
         # default action is to just map action to the physics.ctrl
         # but if you override action_spec, this probably won't work
         # super().before_step(physics, action, random_state)
+        if action is None:
+            # non-agent call of the step(), most likely to accomplish synchronous actions
+            return
+
         assert action.shape == (2,)
         # get current position.
         current_position = self.pointmass.get_position(physics)
@@ -208,7 +212,7 @@ if __name__ == "__main__":
     print(environment.reset())
     print(environment.action_spec())
     print(environment.observation_spec())
-    print(environment.step(np.ones(2) * 0.8))
+    print(environment.step(None))
     # TODO: figure out if you can make env render more frequent than control frequency
     # to see intermediate physics.
     # but I'm guessing you can't..
