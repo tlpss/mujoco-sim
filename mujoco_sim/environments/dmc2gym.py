@@ -30,12 +30,11 @@ def _convert_specs_to_flattened_box(spec: List[specs.Array], dtype: np.dtype) ->
         assert s.dtype == np.float64 or s.dtype == np.float32
         dim = np.int32(np.prod(s.shape))  # np.numel would be cleaner?
         if type(s) == specs.Array:
-            bound = np.inf * np.ones(dim, dtype=np.float32)
+            bound = np.inf * np.ones(dim, dtype=dtype)
             return -bound, bound
         elif type(s) == specs.BoundedArray:
-            zeros = np.zeros(dim, dtype=np.float32)
+            zeros = np.zeros(dim, dtype=dtype)
             return s.minimum + zeros, s.maximum + zeros
-
     mins, maxs = [], []
     for s in spec:
         mn, mx = extract_min_max(s)
@@ -48,6 +47,16 @@ def _convert_specs_to_flattened_box(spec: List[specs.Array], dtype: np.dtype) ->
     # cast to float32 to save some space in replay buffers?
     return spaces.Box(low, high, dtype=np.float32)
 
+
+def convert_spec_to_box(s):
+    dim = s.shape
+    if type(s) == specs.Array:
+        bound = np.inf * np.ones(dim, dtype=s.dtype)
+        low,high =  -bound, bound
+    elif type(s) == specs.BoundedArray:
+        zeros = np.zeros(dim, dtype=s.dtype)
+        low,high =  s.minimum + zeros, s.maximum + zeros
+    return spaces.Box(low,high,dtype=s.dtype)
 
 def _flatten_obs(obs: dict) -> np.ndarray:
     """takes a dict of {"str": np.ndarray} observations (according to spec)
@@ -82,7 +91,7 @@ class DMCWrapper(gym.Env):
             )
 
         else:
-            raise NotImplementedError
+            self._observation_space = spaces.Dict({key: convert_spec_to_box(spec) for key, spec in self._env.observation_spec().items()})
             # idea is to maintain the dict structure here and simply turn the dict of specs into a dict of boxes
             # this way dimensionality is not lost (e.g. F/T sensor and image can exist w/o having to flatten the image)
 
@@ -148,7 +157,8 @@ if __name__ == "__main__":
 
     env = suite.load(domain_name="cartpole", task_name="swingup")
     print(env.action_spec())
-    gym_env = DMCWrapper(env)
+    print(env.observation_spec())
+    gym_env = DMCWrapper(env,flatten_observation_space=False)
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
     obs = gym_env.reset()

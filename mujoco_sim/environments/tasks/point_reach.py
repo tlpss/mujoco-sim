@@ -31,7 +31,7 @@ class PointReachConfig(TaskConfig):
     """ limit the mocap (x,y) pose to the walled_arena to, if this is false the mocap is allowed to move outside of the
     arena. The actual ball geom will be stopped by the wall ofc."""
     max_step_size: float = 0.1
-    physics_timestep: float = 0.002  # MJC default
+    physics_timestep: float = 0.01  # MJC default =0.002
     control_timestep: float = 0.06  # 30 physics steps
     max_control_steps_per_episode = 50
 
