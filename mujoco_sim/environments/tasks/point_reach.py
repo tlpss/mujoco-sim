@@ -7,8 +7,9 @@ from dm_env import specs
 
 from mujoco_sim.entities.arenas import WalledPointmassArena
 from mujoco_sim.entities.pointmass import PointMass2D
-from mujoco_sim.entities.utils import build_mocap
+from mujoco_sim.entities.utils import build_mocap, write_xml
 from mujoco_sim.environments.tasks.base import TaskConfig
+from mujoco_sim.entities.camera import Camera, CameraConfig
 
 SPARSE_REWARD = "sparse_reward"
 DENSE_POTENTIAL_REWARD = "dense_potential_reward"
@@ -20,20 +21,22 @@ VISUAL_OBS = "visual_observations"
 REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD)
 OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
+TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0,0.0,1.0]),np.array([1.0,0.0,0.0,0.0]),30)
 
 @dataclasses.dataclass
 class PointReachConfig(TaskConfig):
-    reward_type: str = DENSE_POTENTIAL_REWARD
+    reward_type: str = DENSE_NEG_DISTANCE_REWARD
     observation_type: str = STATE_OBS
     limit_mocap_workspace: bool = True
     """ limit the mocap (x,y) pose to the walled_arena to, if this is false the mocap is allowed to move outside of the
     arena. The actual ball geom will be stopped by the wall ofc."""
-    max_step_size: float = 0.5
+    max_step_size: float = 0.1
     physics_timestep: float = 0.002  # MJC default
     control_timestep: float = 0.06  # 30 physics steps
     max_control_steps_per_episode = 50
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
+    image_resolution: int = 64
 
     def __post_init__(self):
         assert self.observation_type in OBSERVATION_TYPES
@@ -64,6 +67,8 @@ class PointMassReachTask(composer.Task):
     """
 
     def __init__(self, config: PointReachConfig = None) -> None:
+        self.config = PointReachConfig() if config is None else config
+
         # arena is the convention name for the root of the Entity tree
         self._arena = WalledPointmassArena()
 
@@ -83,22 +88,37 @@ class PointMassReachTask(composer.Task):
         self.target = self._arena.mjcf_model.worldbody.add(
             "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
         )
-
-        self.config = PointReachConfig() if config is None else config
+        # add Camera to scene
+        top_down_config = TOP_DOWN_CAMERA_CONFIG
+        top_down_config.image_width = top_down_config.image_height = self.config.image_resolution
+        self.camera = Camera(top_down_config)
+        self._arena.attach(self.camera)
 
         # set timesteps
         self.physics_timestep = self.config.physics_timestep
         self.control_timestep = self.config.control_timestep
 
-        # configure observables of all entities
-        self.pointmass.observables.position.enabled = True
-
+        # create additional observables / Sensors
         self.goal_position_observable = observable.Generic(self._goal_position)
-        self.goal_position_observable.enabled = True
+        self.camera_rgb_observable = observable.Generic(self.camera.get_image)
+        self._task_observables = {
+            "goal_position": self.goal_position_observable,
+            "image": self.camera_rgb_observable
+        }
+        self._configure_observables()
 
         # initialize some variables for reward calculation etc.
         self.distance_to_target = 1.0
         self.previous_distance_to_target = 1.0
+
+    def _configure_observables(self):
+        if self.config.observation_type == STATE_OBS:
+            self.pointmass.observables.position.enabled = True
+            self.goal_position_observable.enabled = True
+        elif self.config.observation_type == VISUAL_OBS:
+            self.camera_rgb_observable.enabled = True
+        else:
+            raise NotImplementedError
 
     def initialize_episode(self, physics, random_state: np.random):
 
@@ -153,9 +173,11 @@ class PointMassReachTask(composer.Task):
 
         if self.config.reward_type == SPARSE_REWARD:
             return self.distance_to_target < self.config.goal_distance_threshold
-        elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
+        elif self.config.reward_type == DENSE_NEG_DISTANCE_REWARD:
             # potential shaped reward
             return -self.distance_to_target
+        elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
+            return self.previous_distance_to_target - self.distance_to_target
 
     def _max_time_exceeded(self, physics):
         return physics.data.time > self.config.max_control_steps_per_episode * self.config.control_timestep
@@ -184,7 +206,7 @@ class PointMassReachTask(composer.Task):
 
     @property
     def task_observables(self):
-        return {"goal_position": self.goal_position_observable}
+        return {name: obs for (name,obs) in self._task_observables.items() if obs.enabled}
 
 
 # TODO: add observations to pointmass
@@ -220,13 +242,17 @@ if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = PointMassReachTask()
+    task = PointMassReachTask(PointReachConfig(observation_type=VISUAL_OBS))
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     print(environment.reset())
     print(environment.action_spec())
     print(environment.observation_spec())
     print(environment.step(None))
+    write_xml(task._arena.mjcf_model)
+    img = task.camera.get_image(environment.physics)
     # TODO: figure out if you can make env render more frequent than control frequency
     # to see intermediate physics.
     # but I'm guessing you can't..
+    import matplotlib.pyplot as plt
+    plt.imsave("test.png",img)
     viewer.launch(environment, policy=create_random_policy(environment))
