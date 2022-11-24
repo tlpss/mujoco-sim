@@ -1,4 +1,4 @@
-""" wrapper for the dm_env to gym Interface
+""" wrapper for the dm_env to create a gym Interface
 
 adapted from https://github.com/denisyarats/dmc2gym/blob/master/dmc2gym/wrappers.py
 """
@@ -74,9 +74,6 @@ class DMCWrapper(gym.Env):
         self._camera_id = render_camera_id
         self.render_dims = render_dims
         self._env = env
-
-        # TODO: check camera exists?
-
         self._action_space = _convert_specs_to_flattened_box([self._env.action_spec()], np.float32)
         # create observation space
         if flatten_observation_space:

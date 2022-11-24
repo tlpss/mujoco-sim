@@ -4,17 +4,7 @@ import numpy as np
 from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 
-
-def build_mocap(model: mjcf.RootElement, name: str) -> mjcf.Element:
-    # mocap -> 'teleporting bodies'
-    # https://github.com/deepmind/mujoco/issues/433
-    # https://mujoco.readthedocs.io/en/latest/modeling.html?highlight=mocap#mocap-bodies
-    mocap = model.worldbody.add("body", name=name, pos=[0.0, 0.0, 0.0], mocap=True)
-
-    # use site to make the mocap geometry object 'visual only' (no collisions)
-    # https://mujoco.readthedocs.io/en/latest/XMLreference.html?highlight=site#body-site
-    mocap.add("site", type="sphere", size=[0.005])
-    return mocap
+from mujoco_sim.entities.utils import build_mocap
 
 
 class PointMass2D(composer.Entity):
@@ -184,11 +174,9 @@ class PointMassObservables(composer.Observables):
 
 
 if __name__ == "__main__":
-    from mujoco_sim.models.utils import write_xml
 
     pointmass = PointMass2D()
     model = pointmass.mjcf_model
-    write_xml(model)
 
     physics = mjcf.Physics.from_mjcf_model(model)
     pointmass.initialize_episode(physics, None)

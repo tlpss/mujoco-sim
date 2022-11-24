@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 from dm_control import mjcf
 
 
 def get_assets_root_folder() -> Path:
-    return Path(__file__).parents[1] / "assets"
+    return Path(__file__).parents[1] / "mjcf"
 
 
 def write_xml(model: mjcf.RootElement):
@@ -25,3 +27,15 @@ def create_dummy_arena() -> mjcf.RootElement():
 
 if __name__ == "__main__":
     print(get_assets_root_folder())
+
+
+def build_mocap(model: mjcf.RootElement, name: str) -> mjcf.Element:
+    # mocap -> 'teleporting bodies'
+    # https://github.com/deepmind/mujoco/issues/433
+    # https://mujoco.readthedocs.io/en/latest/modeling.html?highlight=mocap#mocap-bodies
+    mocap = model.worldbody.add("body", name=name, pos=[0.0, 0.0, 0.0], mocap=True)
+
+    # use site to make the mocap geometry object 'visual only' (no collisions)
+    # https://mujoco.readthedocs.io/en/latest/XMLreference.html?highlight=site#body-site
+    mocap.add("site", type="sphere", size=[0.005])
+    return mocap

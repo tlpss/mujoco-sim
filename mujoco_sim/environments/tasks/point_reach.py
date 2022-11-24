@@ -5,26 +5,39 @@ from dm_control import composer
 from dm_control.composer.observation import observable
 from dm_env import specs
 
-from mujoco_sim.models.point_mass import PointMass2D, build_mocap
-from mujoco_sim.models.walled_arena import WalledArena
+from mujoco_sim.entities.arenas import WalledPointmassArena
+from mujoco_sim.entities.pointmass import PointMass2D
+from mujoco_sim.entities.utils import build_mocap
+from mujoco_sim.environments.tasks.base import TaskConfig
 
 SPARSE_REWARD = "sparse_reward"
-DENSE_POTENTIAL_REWARD = "dense_reward"
+DENSE_POTENTIAL_REWARD = "dense_potential_reward"
+DENSE_NEG_DISTANCE_REWARD = "dense_negative_distance_reward"
 
-REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD)
-OBSERVATION_TYPES = ("state", "visual")
+STATE_OBS = "state_observations"
+VISUAL_OBS = "visual_observations"
+
+REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD)
+OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
 
 @dataclasses.dataclass
-class Config:
-    reward: str = DENSE_POTENTIAL_REWARD
-    observation_space = "state"
+class PointReachConfig(TaskConfig):
+    reward_type: str = DENSE_POTENTIAL_REWARD
+    observation_type: str = STATE_OBS
+    limit_mocap_workspace: bool = True
+    """ limit the mocap (x,y) pose to the walled_arena to, if this is false the mocap is allowed to move outside of the
+    arena. The actual ball geom will be stopped by the wall ofc."""
     max_step_size: float = 0.5
     physics_timestep: float = 0.002  # MJC default
     control_timestep: float = 0.06  # 30 physics steps
-    max_control_steps: int = 50
+    max_control_steps_per_episode = 50
 
-    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) <
+    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
+
+    def __post_init__(self):
+        assert self.observation_type in OBSERVATION_TYPES
+        assert self.reward_type in REWARD_TYPES
 
 
 class PointMassReachTask(composer.Task):
@@ -50,9 +63,9 @@ class PointMassReachTask(composer.Task):
     The task will later be wrapped by an 'Environment' to create the RL env
     """
 
-    def __init__(self, config: Config = None) -> None:
+    def __init__(self, config: PointReachConfig = None) -> None:
         # arena is the convention name for the root of the Entity tree
-        self._arena = WalledArena()
+        self._arena = WalledPointmassArena()
 
         # have to define the mocap here to make sure it is a child of the worldboddy...
         mocap = build_mocap(self._arena.mjcf_model, "pointmass_mocap")
@@ -71,7 +84,7 @@ class PointMassReachTask(composer.Task):
             "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
         )
 
-        self.config = Config() if config is None else config
+        self.config = PointReachConfig() if config is None else config
 
         # set timesteps
         self.physics_timestep = self.config.physics_timestep
@@ -138,14 +151,14 @@ class PointMassReachTask(composer.Task):
     def get_reward(self, physics):
         del physics  # unused
 
-        if self.config.reward == SPARSE_REWARD:
+        if self.config.reward_type == SPARSE_REWARD:
             return self.distance_to_target < self.config.goal_distance_threshold
-        elif self.config.reward == DENSE_POTENTIAL_REWARD:
+        elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
             # potential shaped reward
             return -self.distance_to_target
 
     def _max_time_exceeded(self, physics):
-        return physics.data.time > self.config.max_control_steps * self.config.control_timestep
+        return physics.data.time > self.config.max_control_steps_per_episode * self.config.control_timestep
 
     def should_terminate_episode(self, physics):
 

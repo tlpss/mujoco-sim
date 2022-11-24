@@ -2,11 +2,11 @@ from dm_control.composer import Environment
 from stable_baselines3.sac.sac import SAC
 
 from mujoco_sim.environments.dmc2gym import DMCWrapper
-from mujoco_sim.environments.point_push import Config, PointMassReachTask
+from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
 
 if __name__ == "__main__":
 
-    config = Config(reward="sparse")
+    config = PointReachConfig(reward="sparse")
     dmc_env = Environment(PointMassReachTask())
     gym_env = DMCWrapper(dmc_env)
     print(gym_env.action_space)
