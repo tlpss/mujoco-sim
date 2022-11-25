@@ -6,10 +6,10 @@ from dm_control.composer.observation import observable
 from dm_env import specs
 
 from mujoco_sim.entities.arenas import WalledPointmassArena
+from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.pointmass import PointMass2D
 from mujoco_sim.entities.utils import build_mocap, write_xml
 from mujoco_sim.environments.tasks.base import TaskConfig
-from mujoco_sim.entities.camera import Camera, CameraConfig
 
 SPARSE_REWARD = "sparse_reward"
 DENSE_POTENTIAL_REWARD = "dense_potential_reward"
@@ -21,7 +21,8 @@ VISUAL_OBS = "visual_observations"
 REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD)
 OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
-TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0,0.0,1.0]),np.array([1.0,0.0,0.0,0.0]),30)
+TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
+
 
 @dataclasses.dataclass
 class PointReachConfig(TaskConfig):
@@ -100,10 +101,8 @@ class PointMassReachTask(composer.Task):
 
         # create additional observables / Sensors
         self.goal_position_observable = observable.Generic(self._goal_position)
-        self.camera_rgb_observable = observable.Generic(self.camera.get_image)
         self._task_observables = {
             "goal_position": self.goal_position_observable,
-            "image": self.camera_rgb_observable
         }
         self._configure_observables()
 
@@ -116,7 +115,7 @@ class PointMassReachTask(composer.Task):
             self.pointmass.observables.position.enabled = True
             self.goal_position_observable.enabled = True
         elif self.config.observation_type == VISUAL_OBS:
-            self.camera_rgb_observable.enabled = True
+            self.camera.observables.rgb_image.enabled = True
         else:
             raise NotImplementedError
 
@@ -206,7 +205,7 @@ class PointMassReachTask(composer.Task):
 
     @property
     def task_observables(self):
-        return {name: obs for (name,obs) in self._task_observables.items() if obs.enabled}
+        return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}
 
 
 # TODO: add observations to pointmass
@@ -249,10 +248,11 @@ if __name__ == "__main__":
     print(environment.observation_spec())
     print(environment.step(None))
     write_xml(task._arena.mjcf_model)
-    img = task.camera.get_image(environment.physics)
+    img = task.camera.get_rgb_image(environment.physics)
     # TODO: figure out if you can make env render more frequent than control frequency
     # to see intermediate physics.
     # but I'm guessing you can't..
     import matplotlib.pyplot as plt
-    plt.imsave("test.png",img)
+
+    plt.imsave("test.png", img)
     viewer.launch(environment, policy=create_random_policy(environment))
