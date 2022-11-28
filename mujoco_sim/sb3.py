@@ -18,17 +18,22 @@ if __name__ == "__main__":
 
     @dataclasses.dataclass
     class WandbConfig:
-        lr = 6e-4
+        lr = 3e-4
         tau = 0.005
         gamma = 0.95
-        timesteps = 100_000
+        timesteps = 1_000_000
         seed = 2022
-        entropy_coefficient = 0.0001
+        entropy_coefficient = 0.001
 
     log_dir = _LOGGING_DIR / "pointmass-reach"
     config = WandbConfig()
     task_config = PointReachConfig(
-        observation_type="visual_observations", reward_type="sparse_reward", goal_distance_threshold=0.02
+        observation_type="visual_observations",
+        reward_type="dense_biased_negative_distance_reward",
+        goal_distance_threshold=0.05,
+        max_step_size=0.1,
+        max_control_steps_per_episode=15,
+        image_resolution=64,
     )
 
     config_dict = dataclasses.asdict(config)
@@ -43,7 +48,7 @@ if __name__ == "__main__":
     dmc_env = Environment(PointMassReachTask(task_config), strip_singleton_obs_buffer_dim=True)
     gym_env = DMCWrapper(dmc_env, flatten_observation_space=False, render_camera_id=1)
     gym_env = VideoRecorderWrapper(
-        gym_env, log_dir / f"{run.name}_videos", capture_every_n_episodes=20, log_wandb=True, rescale_video_factor=1
+        gym_env, log_dir / f"{run.name}_videos", capture_every_n_episodes=50, log_wandb=True, rescale_video_factor=1
     )
     print(gym_env.action_space)
     print(gym_env.observation_space)
@@ -54,8 +59,8 @@ if __name__ == "__main__":
     # https://stable-baselines3.readthedocs.io/en/master/guide/custom_policy.html
     # #multiple-inputs-and-dictionary-observations
     policy_kwargs = {
-        # "net_arch": dict(qf=[128], pi=[128]), # extra NN in the CNN output! so conv2d-conv2d-conv2d-NN-NN
-        # "share_features_extractor": True
+        "net_arch": dict(qf=[64], pi=[32]),  # extra NN in the CNN output! so conv2d-conv2d-conv2d-NN-NN
+        "share_features_extractor": True,
     }
     sac = SAC(
         "MultiInputPolicy",
@@ -68,7 +73,11 @@ if __name__ == "__main__":
         ent_coef=config.entropy_coefficient,
         policy_kwargs=policy_kwargs,
         tensorboard_log=log_dir,
-        buffer_size=100_000,
+        buffer_size=200_000,
+        device="cuda",
+        # train_freq=(2,"episode"),
+        gradient_steps=-1,
+        batch_size=64,
     )
 
     wandb_callback = WandbCallback(1, log_dir / "models", 0, 0, "all")
