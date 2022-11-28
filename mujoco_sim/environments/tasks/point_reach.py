@@ -21,7 +21,7 @@ VISUAL_OBS = "visual_observations"
 REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD)
 OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
-TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
+TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, 0.0, 2.4]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
 
 
 @dataclasses.dataclass
@@ -31,10 +31,10 @@ class PointReachConfig(TaskConfig):
     limit_mocap_workspace: bool = True
     """ limit the mocap (x,y) pose to the walled_arena to, if this is false the mocap is allowed to move outside of the
     arena. The actual ball geom will be stopped by the wall ofc."""
-    max_step_size: float = 0.1
-    physics_timestep: float = 0.01  # MJC default =0.002
-    control_timestep: float = 0.06  # 30 physics steps
-    max_control_steps_per_episode = 50
+    max_step_size: float = 0.05
+    physics_timestep: float = 0.02  # MJC default =0.002
+    control_timestep: float = 0.1  # 30 physics steps
+    max_control_steps_per_episode = 25
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
     image_resolution: int = 64
@@ -75,7 +75,7 @@ class PointMassReachTask(composer.Task):
 
         # have to define the mocap here to make sure it is a child of the worldboddy...
         mocap = build_mocap(self._arena.mjcf_model, "pointmass_mocap")
-        self.pointmass = PointMass2D(mocap=mocap)
+        self.pointmass = PointMass2D(mocap=mocap, radius=0.05)
         self._arena.attach(self.pointmass)
 
         # after attaching, the name has changed, so we can only weld here...
@@ -87,7 +87,7 @@ class PointMassReachTask(composer.Task):
         )
 
         self.target = self._arena.mjcf_model.worldbody.add(
-            "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.01, 0.01, 0.01], pos=[0.25, 0.25, 0.01]
+            "site", name="target", type="box", rgba=[0, 255, 0, 1.0], size=[0.04, 0.04, 0.04], pos=[0.25, 0.25, 0.01]
         )
         # add Camera to scene
         top_down_config = TOP_DOWN_CAMERA_CONFIG
@@ -243,10 +243,10 @@ if __name__ == "__main__":
 
     task = PointMassReachTask(PointReachConfig(observation_type=VISUAL_OBS))
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
-    print(environment.reset())
+    timestep = environment.reset()
     print(environment.action_spec())
     print(environment.observation_spec())
-    print(environment.step(None))
+    # print(environment.step(None))
     write_xml(task._arena.mjcf_model)
     img = task.camera.get_rgb_image(environment.physics)
     # TODO: figure out if you can make env render more frequent than control frequency
@@ -254,5 +254,5 @@ if __name__ == "__main__":
     # but I'm guessing you can't..
     import matplotlib.pyplot as plt
 
-    plt.imsave("test.png", img)
+    plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
     viewer.launch(environment, policy=create_random_policy(environment))
