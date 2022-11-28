@@ -8,17 +8,18 @@ from dm_env import specs
 from mujoco_sim.entities.arenas import WalledPointmassArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.pointmass import PointMass2D
-from mujoco_sim.entities.utils import build_mocap, write_xml
+from mujoco_sim.entities.utils import build_mocap
 from mujoco_sim.environments.tasks.base import TaskConfig
 
 SPARSE_REWARD = "sparse_reward"
 DENSE_POTENTIAL_REWARD = "dense_potential_reward"
 DENSE_NEG_DISTANCE_REWARD = "dense_negative_distance_reward"
+DENSE_BIASED_NEG_DISTANCE_REWARD = "dense_biased_negative_distance_reward"
 
 STATE_OBS = "state_observations"
 VISUAL_OBS = "visual_observations"
 
-REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD)
+REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD, DENSE_BIASED_NEG_DISTANCE_REWARD)
 OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
 TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, 0.0, 2.4]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
@@ -173,10 +174,14 @@ class PointMassReachTask(composer.Task):
         if self.config.reward_type == SPARSE_REWARD:
             return self.distance_to_target < self.config.goal_distance_threshold
         elif self.config.reward_type == DENSE_NEG_DISTANCE_REWARD:
-            # potential shaped reward
             return -self.distance_to_target
+        elif self.config.reward_type == DENSE_BIASED_NEG_DISTANCE_REWARD:
+            return -self.distance_to_target + 0.5  # attempt to make random policy reward positive
         elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
             return self.previous_distance_to_target - self.distance_to_target
+
+        else:
+            raise ValueError("reward type not known?")
 
     def _max_time_exceeded(self, physics):
         return physics.data.time > self.config.max_control_steps_per_episode * self.config.control_timestep
@@ -247,12 +252,10 @@ if __name__ == "__main__":
     print(environment.action_spec())
     print(environment.observation_spec())
     # print(environment.step(None))
-    write_xml(task._arena.mjcf_model)
+    # write_xml(task._arena.mjcf_model)
     img = task.camera.get_rgb_image(environment.physics)
-    # TODO: figure out if you can make env render more frequent than control frequency
-    # to see intermediate physics.
-    # but I'm guessing you can't..
-    import matplotlib.pyplot as plt
 
-    plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
+    # import matplotlib.pyplot as plt
+    # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
+
     viewer.launch(environment, policy=create_random_policy(environment))
