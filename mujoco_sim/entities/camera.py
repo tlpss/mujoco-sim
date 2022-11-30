@@ -33,6 +33,7 @@ class Camera(composer.Entity):
         self._camera = self._model.worldbody.add(
             "camera", mode="fixed", pos=self.config.position, quat=self.config.orientation, fovy=self.config.fov
         )
+        # TODO: add geometric element (for wrist camera's this becomes important.)
 
     def get_rgb_image(self, physics: Physics):
         # channel-last, 0-255 int
