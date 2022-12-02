@@ -3,16 +3,17 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from airo_core.spatial_algebra.se3 import SE3Container
 from dm_control import composer, mjcf
 
 from mujoco_sim.entities.utils import get_assets_root_folder
+from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 from ur_ikfast.ur_ikfast import ur_kinematics
 
-ur5_ikfast_solver = ur_kinematics.URKinematics("ur5e")
-from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 
-
-def solve_ik_ikfast(pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
+def solve_ik_ikfast(
+    solver: ur_kinematics.URKinematics, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE
+) -> Optional[JOINT_CONFIGURATION_TYPE]:
     """analytical (global) IK, returns the solution that is closest to the current joint configuration
     without taking collisions into account.
     """
@@ -22,7 +23,7 @@ def solve_ik_ikfast(pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optio
         # add random noise to the EEF orienation to avoid axis-alignment
         # see https://github.com/cambel/ur_ikfast/issues/4
         pose[3:] += np.random.randn(4) * 0.01
-        targj = ur5_ikfast_solver.inverse(pose, q_guess=q_guess)
+        targj = solver.inverse(pose, q_guess=q_guess)
         if targj is not None:
             break
 
@@ -45,6 +46,8 @@ class UR5e(composer.Entity):
     #  (and is used internally for IK as it is the last element in the robot kinematics tree)
     _FLANGE_SITE_NAME = "attachment_site"
 
+    home_joint_positions = np.array([-0.5, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
+
     def __init__(self) -> None:
         """
         _model: the xml tree is built top-down, to make sure that you always have acces to entire scene so far,
@@ -54,9 +57,15 @@ class UR5e(composer.Entity):
 
         self.physics = None
         self._model = None
-        self.tcp_pose: POSE_TYPE = np.array(
+        self.joint_speed = 1  # rad/s
+        self.tcp_in_flange_pose: POSE_TYPE = np.array(
             [0, 0, 0, 0, 0, 0, 1.0]
         )  # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
+
+        self.tcp_target_pose = None
+        self.joint_target_positions = None
+
+        self.ik_fast_solver = ur_kinematics.URKinematics("ur5e")
 
         super().__init__()
 
@@ -75,56 +84,138 @@ class UR5e(composer.Entity):
     def mjcf_model(self):
         return self._model
 
-    def get_tcp_pose(self, physics=None) -> POSE_TYPE:
-        flange_position = physics.named.data.site_xpos[self._FLANGE_SITE_NAME]
-        flange_orientation = physics.named.data.site_xquat[self._FLANGE_SITE_NAME]
+    def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
+        flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
+        joint_config = solve_ik_ikfast(self.ik_fast_solver, flange_pose, self.home_joint_positions)
+        return joint_config
 
-        # TODO: convert quaternion from scalar first to scalar last.
-        # TODO: get tcp_in_base
-        return flange_orientation, flange_position
+    def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
+        return self.get_joint_positions_from_tcp_pose(tcp_pose) is not None
+
+    def _get_tcp_pose_from_flange_pose(self, flange_pose: POSE_TYPE) -> POSE_TYPE:
+        flange_in_base_matrix = SE3Container.from_quaternion_and_translation(
+            flange_pose[3:], flange_pose[:3]
+        ).homogeneous_matrix
+        tcp_in_flange_matrix = SE3Container.from_quaternion_and_translation(
+            self.tcp_in_flange_pose[3:], self.tcp_in_flange_pose[:3]
+        ).homogeneous_matrix
+        tcp_in_base_matrix = flange_in_base_matrix @ tcp_in_flange_matrix
+        tcp_in_base_se3 = SE3Container.from_homogeneous_matrix(tcp_in_base_matrix)
+        tcp_in_base_pose = np.concatenate(
+            [tcp_in_base_se3.translation, tcp_in_base_se3.get_orientation_as_quaternion()]
+        )
+        return tcp_in_base_pose
+
+    def _get_flange_pose_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> POSE_TYPE:
+        tcp_in_base_matrix = SE3Container.from_quaternion_and_translation(
+            tcp_pose[3:], tcp_pose[:3]
+        ).homogeneous_matrix
+        tcp_in_flange_matrix = SE3Container.from_quaternion_and_translation(
+            self.tcp_in_flange_pose[3:], self.tcp_in_flange_pose[:3]
+        ).homogeneous_matrix
+        flange_in_tcp_matrix = np.linalg.inv(tcp_in_flange_matrix)
+        flange_in_base_matrix = tcp_in_base_matrix @ flange_in_tcp_matrix
+        flange_in_base_se3 = SE3Container.from_homogeneous_matrix(flange_in_base_matrix)
+        flange_in_base_pose = np.concatenate(
+            [flange_in_base_se3.translation, flange_in_base_se3.get_orientation_as_quaternion()]
+        )
+        return flange_in_base_pose
+
+    def get_tcp_pose(self, physics=None) -> POSE_TYPE:
+
+        flange_position = physics.named.data.site_xpos[self._FLANGE_SITE_NAME]
+
+        flange_rotation_matrix = physics.named.data.site_xmat[self._FLANGE_SITE_NAME]
+        flange_rotation_matrix = np.array(flange_rotation_matrix).reshape(3, 3)
+        flange_se3 = SE3Container.from_rotation_matrix_and_translation(flange_rotation_matrix, flange_position)
+        return self._get_tcp_pose_from_flange_pose(
+            np.concatenate([flange_se3.translation, flange_se3.get_orientation_as_quaternion()])
+        )
 
     def get_joint_positions(self, physics=None) -> np.ndarray:
         return physics.data.qpos
 
+    def _reset_targets(self):
+        self.tcp_target_pose = None
+        self.joint_target_positions = None
+
     def set_tcp_pose(self, physics: mjcf.Physics, pose: np.ndarray):
-        # requires global IK
-        # transform TCP pose to flange pose
-        # do ik on flange pose
-        # set joint positions
-        pass
+        flange_pose = self._get_flange_pose_from_tcp_pose(pose)
+        joint_positions = solve_ik_ikfast(self.ik_fast_solver, flange_pose, self.home_joint_positions)
+        if joint_positions is not None:
+            self.set_joint_positions(physics, joint_positions)
+        else:
+            # TODO: log reset pose was not reachable.
+            pass
 
     def set_joint_positions(self, physics: mjcf.Physics, joint_positions: np.ndarray):
         physics.data.qpos = joint_positions
         physics.data.qvel = np.zeros(self.dof)
 
+        physics.data.ctrl = joint_positions
+
+        self._reset_targets()
+
     # control API
-    def set_tcp_target_pose(self, physics: mjcf.Physics, target_position: np.ndarray):
-        # transform tcp pose to flange pose
-        # do IK
-        # set the joint targets for the controller.
-        pass
+    def set_tcp_target_pose(self, physics: mjcf.Physics, tcp_pose: np.ndarray):
+        if self.is_pose_reachable(tcp_pose):
+            self._reset_targets()
+            self.tcp_target_pose = tcp_pose
+        else:
+            # TODO: log!
+            pass
 
     def before_substep(self, physics, random_state):
-        # TODO: convert the TCP target position to the desired joint target positions
-        # and then apply these target positions to the robot
 
-        # maybe even interpolate until the next tcp command? this requires knowledge on the control rate.
-        pass
+        if self.tcp_target_pose is not None:
+            self.joint_target_positions = self.get_joint_positions_from_tcp_pose(self.tcp_target_pose)
+            self.tcp_target_pose = None
+
+        if self.joint_target_positions is not None:
+            difference_vector = self.joint_target_positions - self.get_joint_positions(physics)
+
+            if np.linalg.norm(difference_vector, 1) < 1e-2:
+                self.joint_target_positions = None
+                return
+            print(f"{self.joint_target_positions=}")
+            print(f"{difference_vector=}")
+            leading_axis = np.argmax(difference_vector > 1e-2)
+            difference_vector /= np.abs(difference_vector[leading_axis])
+            difference_vector *= self.joint_speed * physics.timestep()
+            step_target = self.get_joint_positions(physics) + difference_vector
+            physics.data.ctrl = step_target
+
+    def is_moving(self) -> bool:
+        return self.tcp_target_pose is not None or self.joint_target_positions is not None
 
     # def _build_observables(self):
     #     # joint positions, joint velocities
     #     # tcp position, tcp velocities
     #     # tcp F/T
-    #     pass
+    #     # how to deal with SE2 vs SE3?
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
 
     robot = UR5e()
+    print(f" flange home pos according to ikfast: {robot.ik_fast_solver.forward(np.zeros(6))}")
     model = robot.mjcf_model
-
     physics = mjcf.Physics.from_mjcf_model(model)
-    print(physics.named.data.site_xpos)
-    print(physics.named.data.xpos)
-    print(robot.flange)
+
+    with physics.reset_context():
+        robot.set_joint_positions(physics, robot.home_joint_positions)
     print(robot.get_tcp_pose(physics))
+    plt.imshow(physics.render())
+    plt.show()
+
+    robot.set_tcp_target_pose(physics, np.array([0.4, -0.3, 0.2, 0, 1, 0, 0]))
+
+    for i in range(500 * 20):
+        robot.before_substep(physics, None)
+        physics.step()
+        if i % 500 == 0:
+            print(robot.get_tcp_pose(physics))
+            print(f"joint pos = {robot.get_joint_positions(physics)}")
+            plt.imshow(physics.render())
+            plt.show()
