@@ -4,3 +4,6 @@
 [submodule "ur_ikfast"]
 	path = ur_ikfast
 	url = https://github.com/cambel/ur_ikfast.git
+[submodule "airo-core"]
+	path = airo-core
+	url = https://github.com/airo-ugent/airo-core.git
