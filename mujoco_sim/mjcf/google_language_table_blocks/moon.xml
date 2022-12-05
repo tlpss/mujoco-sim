@@ -1,0 +1,11 @@
+<mujoco model="moon">
+  <compiler angle="radian" autolimits="true"/>
+  <size/>
+  <default/>
+  <asset>
+    <mesh name="moon" file="moon.obj"/>
+  </asset>
+  <worldbody>
+    <geom type="mesh" rgba="1 1 0.4 1" quat="1 1 0 0 " mesh="moon"/>
+  </worldbody>
+</mujoco>
