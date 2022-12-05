@@ -26,6 +26,7 @@ from dm_control import composer
 
 from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
+from mujoco_sim.entities.eef.cylinder import CylinderEEF
 from mujoco_sim.entities.robots.robot import UR5e
 from mujoco_sim.environments.tasks.base import TaskConfig
 
@@ -67,6 +68,8 @@ class RobotPushTask(composer.Task):
         self._arena = EmptyRobotArena(3)
         self.robot = UR5e()
         self.robot_site = self._arena.mjcf_model.worldbody.add("site", name="robot_site", pos=[0.5, 0, 0])
+        self.cylinderEEF = CylinderEEF()
+        self.robot.attach_end_effector(self.cylinderEEF)
         # TODO: bring this site to the arena and standardize
         self._arena.attach(self.robot, self.robot_site)
 

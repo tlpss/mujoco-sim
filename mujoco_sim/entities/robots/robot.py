@@ -6,6 +6,7 @@ import numpy as np
 from airo_core.spatial_algebra.se3 import SE3Container
 from dm_control import composer, mjcf
 
+from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.utils import get_assets_root_folder
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 from ur_ikfast.ur_ikfast import ur_kinematics
@@ -79,6 +80,10 @@ class UR5e(composer.Entity):
     def initialize_episode(self, physics, random_state):
         self.physics = physics
         return super().initialize_episode(physics, random_state)
+
+    def attach_end_effector(self, end_effector: EEF):
+        self.attach(end_effector, self.flange)
+        self.tcp_in_flange_pose[:3] = end_effector.tcp_offset
 
     @property
     def mjcf_model(self):
@@ -219,3 +224,4 @@ if __name__ == "__main__":
             print(f"joint pos = {robot.get_joint_positions(physics)}")
             plt.imshow(physics.render())
             plt.show()
+
