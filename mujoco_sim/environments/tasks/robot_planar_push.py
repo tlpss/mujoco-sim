@@ -30,6 +30,7 @@ from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.cylinder import CylinderEEF
 from mujoco_sim.entities.robots.robot import UR5e
 from mujoco_sim.environments.tasks.base import TaskConfig
+from mujoco_sim.entities.props.google_block import GoogleBlockProp
 from dm_env import specs
 
 SPARSE_REWARD = "sparse_reward"
@@ -94,7 +95,6 @@ class RobotPushTask(composer.Task):
         # TODO: bring this site to the arena and standardize
         self._arena.attach(self.robot, self.robot_site)
 
-
         self.robot_workspace = RobotPositionWorkspace((-0.7,0.7),(-0.8,-0.3),(0.1,0.1))
 
         # add Camera to scene
@@ -113,6 +113,9 @@ class RobotPushTask(composer.Task):
         #TODO: add the goal
         #TODO: make sure that the robot is not in collision with the objects
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
+        self.block = GoogleBlockProp()
+        self._arena.attach(self.block).add('freejoint')
+        self.block.set_pose(physics, np.concatenate([self.robot_workspace.sample(), TOP_DOWN_QUATERNION]))
 
     @property
     def root_entity(self):
