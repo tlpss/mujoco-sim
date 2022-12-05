@@ -24,9 +24,10 @@ class CylinderEEF(EEF):
             "geom",
             name="cylinder-EEF",
             type="cylinder",
+            mass=0.1,
             size=[self.radius, self.len / 2],
             rgba=[0.2, 0.2, 0.2, 1.0],
-            pos=[0.0, 0.0, +self.len / 2],
+            pos=[0.0, 0.0, +self.len / 2 +0.001],
         )
 
     @property
@@ -35,7 +36,7 @@ class CylinderEEF(EEF):
 
     @property
     def tcp_offset(self) -> VECTOR_TYPE:
-        return np.array([0.0, 0.0, self.len / 2])
+        return np.array([0.0, 0.0, self.len])
 
 
 if __name__ == "__main__":
