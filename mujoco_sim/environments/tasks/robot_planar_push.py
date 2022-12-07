@@ -20,10 +20,11 @@ requires:
 """
 
 import dataclasses
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 from dm_control import composer
+from dm_control.composer.observation import observable
 from dm_env import specs
 
 from mujoco_sim.entities.arenas import EmptyRobotArena
@@ -77,14 +78,15 @@ class RobotPositionWorkspace:
 class RobotPushConfig(TaskConfig):
     reward_type: str = DENSE_NEG_DISTANCE_REWARD
     observation_type: str = STATE_OBS
-    max_step_size: float = 0.04
+    max_step_size: float = 0.01
     physics_timestep: float = 0.002  # MJC default =0.002 (500Hz)
     control_timestep: float = 0.04
-    max_control_steps_per_episode = 25
+    max_control_steps_per_episode = 200
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
-    image_resolution: int = 64
+    image_resolution: int = 128
 
+    target_radius = 0.1
     n_objects: int = 5
 
     def __post_init__(self):
@@ -104,8 +106,19 @@ class RobotPushTask(composer.Task):
         # TODO: bring this site to the arena and standardize
         self._arena.attach(self.robot, self.robot_site)
 
+        # creat target
+        self.target = self._arena.mjcf_model.worldbody.add(
+            "site",
+            name="target",
+            type="cylinder",
+            rgba=[1, 1, 1, 1.0],
+            size=[config.target_radius, 0.001],
+            pos=[0.0, -0.5, 0.001],
+        )
+
         self.robot_workspace = RobotPositionWorkspace((-0.5, 0.5), (-0.7, -0.3), (0.03, 0.03))
         self.object_spawn_space = RobotPositionWorkspace((-0.4, 0.4), (-0.6, -0.4), (0.05, 0.2))
+        self.target_spawn_space = RobotPositionWorkspace((-0.3, 0.3), (-0.6, -0.4), (0.001, 0.001))
 
         # add Camera to scene
         top_down_config = TOP_DOWN_CAMERA_CONFIG
@@ -118,6 +131,22 @@ class RobotPushTask(composer.Task):
         self.control_timestep = self.config.control_timestep
         self.objects = []
 
+        # create additional observables / Sensors
+        self.goal_position_observable = observable.Generic(lambda physics: physics.bind(self.target).pos[:2])
+        self._task_observables = {
+            "target_position": self.goal_position_observable,
+        }
+        self._configure_observables()
+
+    def _configure_observables(self):
+        if self.config.observation_type == STATE_OBS:
+            self.goal_position_observable.enabled = True
+            self.robot.observables.tcp_position.enabled = True
+            # TODO: add object positions
+
+        elif self.config.observation_type == VISUAL_OBS:
+            self.camera.observables.rgb_image.enabled = True
+
     def initialize_episode_mjcf(self, random_state):
         for object in self.objects:
             object.detach()
@@ -125,10 +154,11 @@ class RobotPushTask(composer.Task):
 
     def initialize_episode(self, physics, random_state):
         robot_initial_pose = self.robot_workspace.sample()
-        # TODO: add the objects
-        # TODO: add the goal
-        # TODO: make sure that the robot is not in collision with the objects
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
+
+        target_position = self.target_spawn_space.sample()
+        physics.bind(self.target).pos = target_position
+
         self.randomize_object_position(physics)
 
         # self.block.set_pose(physics, np.concatenate([self.robot_workspace.sample(), TOP_DOWN_QUATERNION]))
@@ -159,6 +189,8 @@ class RobotPushTask(composer.Task):
             return
         assert action.shape == (2,)
         current_position = self.robot.get_tcp_pose(physics)[:3]
+        print("-")
+        print(current_position)
         target_position = np.copy(current_position)
         target_position[:2] += action
         target_position = self.robot_workspace.clip_to_workspace(target_position)
@@ -166,12 +198,41 @@ class RobotPushTask(composer.Task):
         self.robot.set_tcp_target_pose(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]))
 
     def get_reward(self, physics):
-        return 0.0
+        if self.config.reward_type == SPARSE_REWARD:
+            distances = self._get_object_distances_to_target(physics)
+            return sum([distance < self.config.target_radius for distance in distances])
+        else:
+            # normalize by max distance to get a reward between 0 and 1
+            max_distances = self.config.n_objects * 1.0  # raw approximation
+            return (max_distances - sum(self._get_object_distances_to_target(physics))) / max_distances
 
     def action_spec(self, physics):
         del physics
         bound = np.array([self.config.max_step_size, self.config.max_step_size])
         return specs.BoundedArray(shape=(2,), dtype=np.float32, minimum=-bound, maximum=bound)
+
+    def get_discount(self, physics):
+        return 0.0 if self.is_task_accomplished(physics) else 1.0
+
+    def should_terminate_episode(self, physics) -> bool:
+        accomplished = self.is_task_accomplished(physics)
+        time_limit = physics.time() >= self.config.max_control_steps_per_episode * self.control_timestep
+        return accomplished or time_limit
+
+    def _get_object_distances_to_target(self, physics) -> List[float]:
+        distances = []
+        for object in self.objects:
+            distance = np.linalg.norm(object.get_position(physics)[:2] - physics.bind(self.target).pos[:2])
+            distances.append(distance)
+        return distances
+
+    def is_task_accomplished(self, physics) -> bool:
+        distances = self._get_object_distances_to_target(physics)
+        return all([distance < self.config.target_radius for distance in distances])
+
+    @property
+    def task_observables(self):
+        return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}
 
 
 def create_random_policy(environment: composer.Environment):
@@ -179,7 +240,7 @@ def create_random_policy(environment: composer.Environment):
     environment.observation_spec()
 
     def random_policy(time_step):
-        return np.array([0.10, 0.0])
+        return np.array([0.01, 0])
         return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
 
     return random_policy
@@ -192,6 +253,10 @@ if __name__ == "__main__":
     task = RobotPushTask(RobotPushConfig(observation_type=VISUAL_OBS))
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
+    import matplotlib.pyplot as plt
+
+    plt.imshow(timestep.observation["Camera/rgb_image"])
+    plt.show()
     print(environment.action_spec())
     print(environment.observation_spec())
     # print(environment.step(None))

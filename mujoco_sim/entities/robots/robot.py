@@ -187,6 +187,8 @@ class UR5e(composer.Entity):
             # implement tcp movements as 'movej_IK' for now
             # but should do moveL in the future.
             self.joint_target_positions = self.get_joint_positions_from_tcp_pose(self.tcp_target_pose)
+            difference_vector = self.joint_target_positions - self.joint_setpoint
+            print(f"step size = {self.joint_speed*physics.timestep()}")
             self.tcp_target_pose = None
 
         if self.joint_target_positions is not None:
@@ -197,10 +199,13 @@ class UR5e(composer.Entity):
                 self.joint_target_positions = None
                 return
 
-            difference_vector /= np.linalg.norm(difference_vector, 1)
-            difference_vector *= physics.timestep() * self.joint_speed
+            difference_vector /= np.max(np.abs(difference_vector))
+            difference_vector *= self.joint_speed * physics.timestep()
             self.joint_setpoint += difference_vector
-            physics.bind(self.actuators).ctrl = self.joint_setpoint
+            physics.bind(self.actuators).ctrl = self.joint_setpoint + 10 * difference_vector
+            print(f"{self.joint_setpoint[:3]=}")
+            print(f"{self.get_joint_positions(physics)[:3]=}")
+            print(f"{self.joint_target_positions[:3]=}")
 
     def is_moving(self) -> bool:
         return self.tcp_target_pose is not None or self.joint_target_positions is not None
@@ -226,7 +231,8 @@ if __name__ == "__main__":
     plt.imshow(physics.render())
     plt.show()
 
-    # robot.set_tcp_target_pose(physics, np.array([0.4, -0.3, 0.2, 0, 1, 0, 0]))
+    robot.set_tcp_target_pose(physics, np.array([0.7, -0.3, 0.2, 0, 1, 0, 0]))
+    robot.before_step(physics, None)
     for i in range(500 * 20):
         robot.before_substep(physics, None)
         physics.step()
