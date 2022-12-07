@@ -19,6 +19,8 @@ COLORS = (RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE)
 
 
 class GoogleBlockProp(composer.Entity):
+    XML_OBJECT_NAME = "model"
+
     def __init__(
         self, block_category: str = "cube", scale: float = 1.0, color: Tuple[float, float, float, float] = RED
     ):
@@ -28,11 +30,18 @@ class GoogleBlockProp(composer.Entity):
         self.mass = 0.1  # kg
         super().__init__()
 
+    def initialize_episode_mjcf(self, random_state):
+        return super().initialize_episode_mjcf(random_state)
+
     def _build(self):
         self._model = mjcf.from_path(
             str(get_assets_root_folder() / "google_language_table_blocks" / f"{self.block_category}.xml")
         )
+        self.object_body = self._model.find("body", self.XML_OBJECT_NAME)
+
         self._model.find_all("geom")[0].mass = self.mass
+        self._model.find_all("geom")[0].rgba = np.array(self.color)
+        self._model.find_all("mesh")[0].scale = np.array([self.scale, self.scale, self.scale])
 
         # try to avoid 'rotation' of the moons by adding rotational friction
         self._model.find_all("geom")[0].condim = 4
@@ -57,10 +66,14 @@ class GoogleBlockProp(composer.Entity):
         scale = random.uniform(*scale_range)
         return GoogleBlockProp(block_category, scale, color)
 
+    def get_position(self, physics: mjcf.Physics):
+        return physics.bind(self.object_body).pos
+
 
 if __name__ == "__main__":
     pass
 
-    block = GoogleBlockProp.sample_random_object()
+    block = GoogleBlockProp.sample_random_object(category_list=["cube"])
     model = block.mjcf_model
     physics = mjcf.Physics.from_mjcf_model(model)
+    print(block.get_position(physics))
