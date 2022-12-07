@@ -1,8 +1,12 @@
-from dm_control import composer
-from dm_control import mjcf
+import random
+from typing import List, Tuple
+
+import numpy as np
+from dm_control import composer, mjcf
+
 from mujoco_sim.entities.utils import get_assets_root_folder
-from typing import Tuple
-TYPES = ("cube","moon","pentagon","star")
+
+CATEGORIES = ("cube", "moon", "pentagon", "star")
 
 RED = (1.0, 0.0, 0.0, 1.0)
 BLUE = (0.0, 0.0, 1.0, 1.0)
@@ -13,34 +17,50 @@ PURPLE = (1.0, 0.0, 1.0, 1.0)
 
 COLORS = (RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE)
 
+
 class GoogleBlockProp(composer.Entity):
-    def __init__(self, type: str = "cube", scale:float = 1.0, color: Tuple[float,float,float,float]= RED):
-        self.type = type
+    def __init__(
+        self, block_category: str = "cube", scale: float = 1.0, color: Tuple[float, float, float, float] = RED
+    ):
+        self.block_category = block_category
         self.scale = scale
         self.color = color
-        self.mass = 0.1 # kg
+        self.mass = 0.1  # kg
         super().__init__()
-    
+
     def _build(self):
-        self._model = mjcf.RootElement()
-        self._model.get_assets().add("asset",type="mesh",file=str(get_assets_root_folder() / "google_language_table_blocks" / f"{self.type}.obj"))
-        self.block = self._model.worldbody.add(
-            "geom",
-            type="mesh",
-            mesh=self.type,
-            rgba=[0.2, 0.2, 0.2, 1.0],
-            pos=[0.0, 0.0, 0.0],
-            mass=self.mass,
+        self._model = mjcf.from_path(
+            str(get_assets_root_folder() / "google_language_table_blocks" / f"{self.block_category}.xml")
         )
+        self._model.find_all("geom")[0].mass = self.mass
+
+        # try to avoid 'rotation' of the moons by adding rotational friction
+        self._model.find_all("geom")[0].condim = 4
+        self._model.find_all("geom")[0].friction = np.array([1.0, 0.05, 0.0])
 
     @property
     def mjcf_model(self):
         return self._model
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
 
-    block = GoogleBlockProp()
+    @classmethod
+    def sample_random_object(
+        cls,
+        category_list: List[str] = None,
+        color_list: List[Tuple] = None,
+        scale_range: Tuple[float, float] = (0.8, 1.2),
+    ):
+        category_lists = category_list or CATEGORIES
+        color_list = color_list or COLORS
+        block_category = random.choice(category_lists)
+
+        color = random.choice(color_list)
+        scale = random.uniform(*scale_range)
+        return GoogleBlockProp(block_category, scale, color)
+
+
+if __name__ == "__main__":
+    pass
+
+    block = GoogleBlockProp.sample_random_object()
     model = block.mjcf_model
     physics = mjcf.Physics.from_mjcf_model(model)
-    
-    

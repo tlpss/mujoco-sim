@@ -24,14 +24,14 @@ from typing import Tuple
 
 import numpy as np
 from dm_control import composer
+from dm_env import specs
 
 from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.cylinder import CylinderEEF
+from mujoco_sim.entities.props.google_block import GoogleBlockProp
 from mujoco_sim.entities.robots.robot import UR5e
 from mujoco_sim.environments.tasks.base import TaskConfig
-from mujoco_sim.entities.props.google_block import GoogleBlockProp
-from dm_env import specs
 
 SPARSE_REWARD = "sparse_reward"
 DENSE_POTENTIAL_REWARD = "dense_potential_reward"
@@ -48,23 +48,30 @@ TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, -0.5, 2.4]), np.array([1.0,
 
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
 
+
 class RobotPositionWorkspace:
-    def __init__(self,x_range: Tuple[float,float],y_range: Tuple[float,float],z_range: Tuple[float,float]) -> None:
+    def __init__(
+        self, x_range: Tuple[float, float], y_range: Tuple[float, float], z_range: Tuple[float, float]
+    ) -> None:
         self.x_range = x_range
         self.y_range = y_range
         self.z_range = z_range
+
     def clip_to_workspace(self, pose: np.ndarray) -> np.ndarray:
-        for i,axis in enumerate([self.x_range,self.y_range,self.z_range]):
-            pose[i] = np.clip(pose[i],axis[0],axis[1])
+        for i, axis in enumerate([self.x_range, self.y_range, self.z_range]):
+            pose[i] = np.clip(pose[i], axis[0], axis[1])
         return pose
 
     def is_in_workspace(self, pose: np.ndarray) -> bool:
-        if np.isclose(pose,self.clip_to_workspace(pose)).all():
+        if np.isclose(pose, self.clip_to_workspace(pose)).all():
             return True
         return False
-    
+
     def sample(self) -> np.ndarray:
-        return np.array([np.random.uniform(*self.x_range),np.random.uniform(*self.y_range),np.random.uniform(*self.z_range)])
+        return np.array(
+            [np.random.uniform(*self.x_range), np.random.uniform(*self.y_range), np.random.uniform(*self.z_range)]
+        )
+
 
 @dataclasses.dataclass
 class RobotPushConfig(TaskConfig):
@@ -77,6 +84,8 @@ class RobotPushConfig(TaskConfig):
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
     image_resolution: int = 64
+
+    n_objects: int = 5
 
     def __post_init__(self):
         assert self.observation_type in OBSERVATION_TYPES
@@ -95,7 +104,8 @@ class RobotPushTask(composer.Task):
         # TODO: bring this site to the arena and standardize
         self._arena.attach(self.robot, self.robot_site)
 
-        self.robot_workspace = RobotPositionWorkspace((-0.7,0.7),(-0.8,-0.3),(0.1,0.1))
+        self.robot_workspace = RobotPositionWorkspace((-0.5, 0.5), (-0.7, -0.3), (0.03, 0.03))
+        self.object_spawn_space = RobotPositionWorkspace((-0.4, 0.4), (-0.6, -0.4), (0.05, 0.2))
 
         # add Camera to scene
         top_down_config = TOP_DOWN_CAMERA_CONFIG
@@ -106,16 +116,39 @@ class RobotPushTask(composer.Task):
         # set timesteps
         self.physics_timestep = self.config.physics_timestep
         self.control_timestep = self.config.control_timestep
+        self.objects = []
+
+    def initialize_episode_mjcf(self, random_state):
+        for object in self.objects:
+            object.detach()
+        self._create_objects()
 
     def initialize_episode(self, physics, random_state):
         robot_initial_pose = self.robot_workspace.sample()
-        #TODO: add the objects
-        #TODO: add the goal
-        #TODO: make sure that the robot is not in collision with the objects
+        # TODO: add the objects
+        # TODO: add the goal
+        # TODO: make sure that the robot is not in collision with the objects
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
-        self.block = GoogleBlockProp()
-        self._arena.attach(self.block).add('freejoint')
-        self.block.set_pose(physics, np.concatenate([self.robot_workspace.sample(), TOP_DOWN_QUATERNION]))
+        self.randomize_object_position(physics)
+
+        # self.block.set_pose(physics, np.concatenate([self.robot_workspace.sample(), TOP_DOWN_QUATERNION]))
+
+    def _create_objects(self):
+        self.objects = [GoogleBlockProp.sample_random_object() for _ in range(self.config.n_objects)]
+        self.object_joints = []
+        for object in self.objects:
+            self.object_joints.append(self._arena.attach(object).add("freejoint"))
+        # randomize locations
+        # and repeat until everything is collision free
+
+    def randomize_object_position(self, physics):
+
+        colliding = True
+        while colliding:
+            for object_joint in self.object_joints:
+                physics.named.data.qpos[object_joint.full_identifier][:3] = self.object_spawn_space.sample()
+                physics.named.data.qpos[object_joint.full_identifier][3:] = np.array([1, 0, 0, 0])
+            colliding = False  # physics.data.ncon > 0
 
     @property
     def root_entity(self):
@@ -123,21 +156,21 @@ class RobotPushTask(composer.Task):
 
     def before_step(self, physics, action, random_state):
         if action is None:
-            return 
+            return
         assert action.shape == (2,)
         current_position = self.robot.get_tcp_pose(physics)[:3]
         target_position = np.copy(current_position)
         target_position[:2] += action
         target_position = self.robot_workspace.clip_to_workspace(target_position)
-        #target_position = np.array([0.3,-0.2,0.5])
-        self.robot.set_tcp_target_pose(physics, np.concatenate([target_position,TOP_DOWN_QUATERNION]))
-        
+        print(target_position)
+        self.robot.set_tcp_target_pose(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]))
+
     def get_reward(self, physics):
         return 0.0
 
     def action_spec(self, physics):
         del physics
-        bound = np.array([self.config.max_step_size,self.config.max_step_size])
+        bound = np.array([self.config.max_step_size, self.config.max_step_size])
         return specs.BoundedArray(shape=(2,), dtype=np.float32, minimum=-bound, maximum=bound)
 
 
@@ -146,6 +179,7 @@ def create_random_policy(environment: composer.Environment):
     environment.observation_spec()
 
     def random_policy(time_step):
+        return np.array([0.10, 0.0])
         return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
 
     return random_policy
