@@ -1,0 +1,16 @@
+<mujoco model="handle_001">
+    <compiler angle="radian" autolimits="true" />
+    <size />
+    <default />
+    <asset>
+      <mesh name="handle" file="handle_001.obj" />
+    </asset>
+    <worldbody>
+      <body name="model">
+        <geom type="mesh" mesh="handle" quat="1 1 0 0 " />
+
+        <!-- grasp site determined with blender -->
+        <site name="grasp_site" pos="0 -0.038 0" size="1" />
+      </body>
+    </worldbody>
+  </mujoco>
