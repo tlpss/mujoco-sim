@@ -27,7 +27,7 @@ class CylinderEEF(EEF):
             mass=0.1,
             size=[self.radius, self.len / 2],
             rgba=[0.2, 0.2, 0.2, 1.0],
-            pos=[0.0, 0.0, +self.len / 2 +0.001],
+            pos=[0.0, 0.0, +self.len / 2 + 0.001],
         )
 
     @property

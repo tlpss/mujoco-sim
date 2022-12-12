@@ -32,6 +32,7 @@ from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.cylinder import CylinderEEF
 from mujoco_sim.entities.props.google_block import GoogleBlockProp
 from mujoco_sim.entities.robots.robot import UR5e
+from mujoco_sim.entities.utils import write_xml
 from mujoco_sim.environments.tasks.base import TaskConfig
 
 SPARSE_REWARD = "sparse_reward"
@@ -260,7 +261,7 @@ if __name__ == "__main__":
     print(environment.action_spec())
     print(environment.observation_spec())
     # print(environment.step(None))
-    # write_xml(task._arena.mjcf_model)
+    write_xml(task._arena.mjcf_model)
     img = task.camera.get_rgb_image(environment.physics)
 
     # import matplotlib.pyplot as plt
