@@ -1,3 +1,5 @@
+import abc
+
 import numpy as np
 from dm_control import composer, mjcf
 
@@ -5,7 +7,7 @@ from mujoco_sim.entities.utils import write_xml
 from mujoco_sim.type_aliases import VECTOR_TYPE
 
 
-class EEF(composer.Entity):
+class EEF(composer.Entity, abc.ABC):
     @property
     def tcp_offset(self) -> VECTOR_TYPE:
         """the offset of the TCP in the robot flange frame"""
@@ -27,7 +29,7 @@ class CylinderEEF(EEF):
             mass=0.1,
             size=[self.radius, self.len / 2],
             rgba=[0.2, 0.2, 0.2, 1.0],
-            pos=[0.0, 0.0, +self.len / 2 +0.001],
+            pos=[0.0, 0.0, +self.len / 2 + 0.001],
         )
 
     @property

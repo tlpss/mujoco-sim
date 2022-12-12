@@ -7,3 +7,5 @@ logging/
 **.gif
 **.ckpt
 **.pyc
+
+mjcf/
