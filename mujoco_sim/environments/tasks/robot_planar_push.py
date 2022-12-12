@@ -78,11 +78,10 @@ class RobotPositionWorkspace:
 class RobotPushConfig(TaskConfig):
     reward_type: str = DENSE_NEG_DISTANCE_REWARD
     observation_type: str = STATE_OBS
-    max_step_size: float = 0.01
+    max_step_size: float = 0.02
     physics_timestep: float = 0.002  # MJC default =0.002 (500Hz)
-    control_timestep: float = 0.04
-    max_control_steps_per_episode = 200
-
+    control_timestep: float = 0.1
+    max_control_steps_per_episode: int = 200
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
     image_resolution: int = 128
 
@@ -195,7 +194,7 @@ class RobotPushTask(composer.Task):
         target_position[:2] += action
         target_position = self.robot_workspace.clip_to_workspace(target_position)
         print(target_position)
-        self.robot.set_tcp_target_pose(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]))
+        self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def get_reward(self, physics):
         if self.config.reward_type == SPARSE_REWARD:
@@ -217,6 +216,7 @@ class RobotPushTask(composer.Task):
     def should_terminate_episode(self, physics) -> bool:
         accomplished = self.is_task_accomplished(physics)
         time_limit = physics.time() >= self.config.max_control_steps_per_episode * self.control_timestep
+
         return accomplished or time_limit
 
     def _get_object_distances_to_target(self, physics) -> List[float]:
@@ -256,7 +256,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     plt.imshow(timestep.observation["Camera/rgb_image"])
-    plt.show()
+    # plt.show()
     print(environment.action_spec())
     print(environment.observation_spec())
     # print(environment.step(None))

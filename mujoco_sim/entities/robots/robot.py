@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import warnings
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -24,7 +26,7 @@ def solve_ik_ikfast(
         # fix for axis-aligned orientations (which is often used in e.g. top-down EEF orientations
         # add random noise to the EEF orienation to avoid axis-alignment
         # see https://github.com/cambel/ur_ikfast/issues/4
-        pose[3:] += np.random.randn(4) * 0.01
+        pose[3:] += np.random.randn(4) * 0.001
         targj = solver.inverse(pose, q_guess=q_guess)
         if targj is not None:
             break
@@ -32,6 +34,56 @@ def solve_ik_ikfast(
     if targj is None:
         warnings.warn("IKFast failed... most likely the pose is out of reach of the robot?")
     return targj
+
+
+@dataclasses.dataclass
+class Waypoint:
+    joint_positions: JOINT_CONFIGURATION_TYPE
+    timestep: float
+
+
+class JointTrajectory:
+    """A container to hold a joint trajectory defined by a number of (key) waypoints.
+    The trajectory is defined by linear interpolation between the waypoints.
+
+    Note that this might not be a smooth trajectory, as the joint velocities/accelerations are not guarantueed to be continuous
+    for the interpolated trajectory. To overcome this, use an appropriate trajectory generator and timestep to provide the
+    waypoints in this trajectory so that the discontinuities that are introduced by the linear interpolation are small.
+    """
+
+    def __init__(self, waypoints: list[Waypoint]):
+        # # sort by timestep to make sure that the waypoints are in order
+        self.waypoints = sorted(waypoints, key=lambda x: x.timestep)
+
+    def get_nearest_waypoints(self, t: float) -> tuple[Waypoint, Waypoint]:
+        for i in range(len(self.waypoints) - 1):
+            if t >= self.waypoints[i].timestep and t <= self.waypoints[i + 1].timestep:
+                return self.waypoints[i], self.waypoints[i + 1]
+        raise ValueError("should not be here")
+
+    def _clip_timestep(self, t: float) -> float:
+        """clips the timestep to the range of the waypoints"""
+        return np.clip(t, self.waypoints[0].timestep, self.waypoints[-1].timestep)
+
+    def get_target_joint_positions(self, t: float) -> JOINT_CONFIGURATION_TYPE:
+        """returns the target joint positions at time t by linear interpolation between the waypoints"""
+        t = self._clip_timestep(t)
+        previous_waypoint, next_waypoint = self.get_nearest_waypoints(t)
+        t0, q0 = previous_waypoint.timestep, previous_waypoint.joint_positions
+        t1, q1 = next_waypoint.timestep, next_waypoint.joint_positions
+        return q0 + (q1 - q0) * (t - t0) / (t1 - t0)
+
+    def get_target_joint_velocities(self, t: float) -> JOINT_CONFIGURATION_TYPE:
+        """returns the target joint velocities at time t by linear interpolation between the waypoints"""
+        t = self._clip_timestep(t)
+        previous_waypoint, next_waypoint = self.get_nearest_waypoints(t)
+        t0, q0 = previous_waypoint.timestep, previous_waypoint.joint_positions
+        t1, q1 = next_waypoint.timestep, next_waypoint.joint_positions
+        return (q1 - q0) / (t1 - t0)
+
+    def is_finished(self, t: float) -> bool:
+        """returns True if the trajectory is finished at time t"""
+        return t >= self.waypoints[-1].timestep
 
 
 class UR5e(composer.Entity):
@@ -49,6 +101,7 @@ class UR5e(composer.Entity):
     _FLANGE_SITE_NAME = "attachment_site"
 
     home_joint_positions = np.array([-0.5, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
+    max_joint_speed = 1.0  # rad/s - https://store.clearpathrobotics.com/products/ur3e
 
     def __init__(self) -> None:
         """
@@ -59,16 +112,21 @@ class UR5e(composer.Entity):
 
         self.physics = None
         self._model = None
-        self.joint_speed = 1  # rad/s
         self.tcp_in_flange_pose: POSE_TYPE = np.array(
             [0, 0, 0, 0, 0, 0, 1.0]
         )  # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
 
-        self.tcp_target_pose = None
-        self.joint_target_positions = None
+        self.joint_trajectory: Optional[JointTrajectory] = None
+
+        self.commanded_joint_positions = np.zeros(6)
 
         self.ik_fast_solver = ur_kinematics.URKinematics("ur5e")
 
+        # used for visualization of the performances of the low-level controllers
+        self.joint_position_history = deque(maxlen=10000)
+        self.joint_target_history = deque(maxlen=10000)
+
+        self._reset_targets()
         super().__init__()
 
     def _build(self):
@@ -137,15 +195,17 @@ class UR5e(composer.Entity):
         flange_rotation_matrix = physics.named.data.site_xmat[self.flange.full_identifier]
         flange_rotation_matrix = np.array(flange_rotation_matrix).reshape(3, 3)
         flange_se3 = SE3Container.from_rotation_matrix_and_translation(flange_rotation_matrix, flange_position)
-        return self._get_tcp_pose_from_flange_pose(
-            np.concatenate([flange_se3.translation, flange_se3.get_orientation_as_quaternion()])
+        return np.copy(
+            self._get_tcp_pose_from_flange_pose(
+                np.concatenate([flange_se3.translation, flange_se3.get_orientation_as_quaternion()])
+            )
         )
 
     def get_joint_positions(self, physics) -> np.ndarray:
-        return physics.bind(self.joints).qpos
+        return np.copy(physics.bind(self.joints).qpos)
 
     def _reset_targets(self):
-        self.tcp_target_pose = None
+        self.joint_trajectory = None
         self.joint_target_positions = None
 
     def set_tcp_pose(self, physics: mjcf.Physics, pose: np.ndarray):
@@ -160,52 +220,66 @@ class UR5e(composer.Entity):
     def set_joint_positions(self, physics: mjcf.Physics, joint_positions: np.ndarray):
         physics.bind(self.joints).qpos = joint_positions
         physics.bind(self.joints).qvel = np.zeros(self.dof)
-        physics.bind(self.actuators).ctrl = joint_positions
-
+        physics.data.ctrl = joint_positions
         self._reset_targets()
 
     # control API
-    def set_tcp_target_pose(self, physics: mjcf.Physics, tcp_pose: np.ndarray):
-        if self.is_pose_reachable(tcp_pose):
-            self._reset_targets()
-            self.tcp_target_pose = tcp_pose
-        else:
-            # TODO: log!
-            print("TCP pose is not reachable!")
 
-    def before_step(self, physics, random_state):
+    def moveL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
+        raise NotImplementedError
 
-        # initialize the setpoints for interpolation with the current joint positions / tcp pose
-        self.joint_setpoint = self.get_joint_positions(physics)
-        self.tcp_setpoint = self.get_tcp_pose(physics)
+    def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        if target_joint_positions is not None:
+            self.joint_target_positions = target_joint_positions
 
-        return super().before_step(physics, random_state)
+    def servoL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, time: float):
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        return self.servoJ(physics, target_joint_positions, time)
+
+    def servoJ(self, physics, target_joint_positions, time: float):
+        """This implementation differs from the UR implementaion.
+
+        They use an additional PD controller to determine the setpoint for the joint positions at each timestep.
+        This implementation just lineary interpolates the joint positions between the current and target positions
+        at the desired speed and uses those as setpoints.
+
+        The error dynamics of the UR implementation are better, but this implementation is simpler as it
+        does not require tuning the additional PD controller and has the robot move at constant velocity.
+
+        Args:
+            physics (_type_): _description_
+            target_joint_positions (_type_): _description_
+            time (float): _description_
+        """
+
+        self._reset_targets()
+
+        time = time
+        current_joint_positions = self.get_joint_positions(physics)
+
+        difference_vector = target_joint_positions - current_joint_positions
+        # speed is defined as largest joint movement divided by time
+        speed = np.max(np.abs(difference_vector)) / time
+
+        assert speed < self.max_joint_speed, f"required joint speed {speed} is too high for this robot."
+
+        start_time = physics.time()
+        trajectory = JointTrajectory(
+            [Waypoint(current_joint_positions, start_time), Waypoint(target_joint_positions, start_time + time)]
+        )
+        self.joint_trajectory = trajectory
 
     def before_substep(self, physics: mjcf.Physics, random_state):
+        if self.joint_trajectory is not None:
+            physics.bind(self.actuators).ctrl = self.joint_trajectory.get_target_joint_positions(physics.time())
 
-        if self.tcp_target_pose is not None:
-            # implement tcp movements as 'movej_IK' for now
-            # but should do moveL in the future.
-            self.joint_target_positions = self.get_joint_positions_from_tcp_pose(self.tcp_target_pose)
-            difference_vector = self.joint_target_positions - self.joint_setpoint
-            print(f"step size = {self.joint_speed*physics.timestep()}")
-            self.tcp_target_pose = None
+            # log low-level joint data
+            self.joint_position_history.append(self.get_joint_positions(physics))
+            self.joint_target_history.append(self.joint_trajectory.get_target_joint_positions(physics.time()))
 
-        if self.joint_target_positions is not None:
-
-            # note that this is w.r.t. the current setpoint.
-            difference_vector = self.joint_target_positions - self.joint_setpoint
-            if np.linalg.norm(difference_vector, 1) < 1e-2:
-                self.joint_target_positions = None
-                return
-
-            difference_vector /= np.max(np.abs(difference_vector))
-            difference_vector *= self.joint_speed * physics.timestep()
-            self.joint_setpoint += difference_vector
-            physics.bind(self.actuators).ctrl = self.joint_setpoint + 10 * difference_vector
-            print(f"{self.joint_setpoint[:3]=}")
-            print(f"{self.get_joint_positions(physics)[:3]=}")
-            print(f"{self.joint_target_positions[:3]=}")
+            if self.joint_trajectory.is_finished(physics.timestep()):
+                self.joint_trajectory = None
 
     def is_moving(self) -> bool:
         return self.tcp_target_pose is not None or self.joint_target_positions is not None
@@ -217,8 +291,8 @@ class UR5e(composer.Entity):
     #     # how to deal with SE2 vs SE3?
 
 
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+def test_ur5e_position_controllers_servoL():
+    frequency = 10
 
     robot = UR5e()
     print(f" flange home pos according to ikfast: {robot.ik_fast_solver.forward(np.zeros(6))}")
@@ -227,17 +301,44 @@ if __name__ == "__main__":
 
     with physics.reset_context():
         robot.set_joint_positions(physics, robot.home_joint_positions)
-    print(robot.get_tcp_pose(physics))
-    plt.imshow(physics.render())
+
+    for i in range(5):
+        speed = 0.1
+        delta_step = np.array(
+            [
+                -speed / frequency * (1) ** i,
+                speed / frequency,
+                0.1 / frequency * (-1) ** i,
+                0,
+                speed / frequency,
+                (-1) ** i * speed / frequency,
+                0,
+            ]
+        )
+        delta_step = np.array([speed / frequency, 0, 0, 0, 0, 0, 0])
+        # delta_step = np.zeros(7) # this tests
+        robot.servoL(physics, robot.get_tcp_pose(physics) + delta_step, 1 / frequency)
+        robot.before_step(physics, None)
+        for i in range(int(500 * 1 / frequency)):
+            robot.before_substep(physics, None)
+            physics.step()
+
+    # create a plot with 6 figures: on each figure the target and actual joints is plotted
+    fig, axs = plt.subplots(6, 1, sharex=True)
+    # create title for the whole figure
+    fig.suptitle(f"Low-level joint position control under servoL @ {frequency} Hz")
+    for i in range(6):
+        axs[i].plot(np.array(robot.joint_target_history)[:, i])
+        axs[i].plot(np.array(robot.joint_position_history)[:, i])
+        axs[i].set_ylabel(f"{robot.joints[i].name}")
+        # add legend to the plot to show which line is the target and the actual position
+        axs[i].legend(["target", "actual"])
+        axs[i].set_xlabel("physics steps")
+
     plt.show()
 
-    robot.set_tcp_target_pose(physics, np.array([0.7, -0.3, 0.2, 0, 1, 0, 0]))
-    robot.before_step(physics, None)
-    for i in range(500 * 20):
-        robot.before_substep(physics, None)
-        physics.step()
-        if i % 500 == 0:
-            print(robot.get_tcp_pose(physics))
-            print(f"joint pos = {robot.get_joint_positions(physics)}")
-            plt.imshow(physics.render())
-            plt.show()
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    test_ur5e_position_controllers_servoL()
