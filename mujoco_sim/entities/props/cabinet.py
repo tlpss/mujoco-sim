@@ -138,7 +138,10 @@ class HingeCabinet(composer.Entity):
             "joint", name="door_hinge", type="hinge", limited="true", axis=[0, 0, -1], pos=[0, 0, 0], range=[0, 1.57]
         )
         self.handle_site = self.door.add(
-            "site", name="handle-site", pos=[self.cabinet_body.width * 4 / 5, 0, self.cabinet_body.height / 2]
+            "site",
+            name="handle-site",
+            pos=[self.cabinet_body.width * 4 / 5, 0, self.cabinet_body.height / 2],
+            size=[0.01],
         )  # create site because cannot attach to body?
 
         # TODO: add variations to the handle position and orientation
@@ -158,7 +161,13 @@ class HingeCabinet(composer.Entity):
         return physics.named.data.site_xpos[self.handle.grasp_site.full_identifier]
 
     def _build_observables(self):
-        return observable.MJCFFeature("qpos", self.joint)
+        return CabinetObservables(self)
+
+
+class CabinetObservables(composer.Observables):
+    @composer.observable
+    def hinge_angle(self) -> observable.Observable:
+        return observable.MJCFFeature("qpos", self._entity.joint)
 
 
 if __name__ == "__main__":
