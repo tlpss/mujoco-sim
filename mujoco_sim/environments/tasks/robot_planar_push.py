@@ -75,6 +75,8 @@ class RobotPositionWorkspace:
         )
 
 
+# TODO: add all the MACROS to the class as class variables so that you can easily use them
+# without having to import them separately
 @dataclasses.dataclass
 class RobotPushConfig(TaskConfig):
     reward_type: str = DENSE_NEG_DISTANCE_REWARD
@@ -88,6 +90,9 @@ class RobotPushConfig(TaskConfig):
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
     image_resolution: int = 64
 
+    # coef for the additional reward term that encourages the robot
+    # to touch the objects, only used with dense rewards.
+    nearest_object_reward_coefficient: float = 0.1
     target_radius = 0.1
     n_objects: int = 5
 
@@ -230,7 +235,7 @@ class RobotPushTask(composer.Task):
                     for object in self.objects
                 ]
             )
-            reward += 0.1 * distance_to_nearest_object
+            reward += self.config.nearest_object_reward_coef * distance_to_nearest_object
 
             return reward
 
