@@ -8,6 +8,7 @@ from typing import Optional
 import numpy as np
 from airo_core.spatial_algebra.se3 import SE3Container
 from dm_control import composer, mjcf
+from dm_control.composer.observation import observable
 
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.utils import get_assets_root_folder
@@ -289,6 +290,19 @@ class UR5e(composer.Entity):
     #     # tcp position, tcp velocities
     #     # tcp F/T
     #     # how to deal with SE2 vs SE3?
+
+    def _build_observables(self):
+        return RobotObservables(self)
+
+
+class RobotObservables(composer.Observables):
+    @composer.observable
+    def tcp_pose(self):
+        return observable.Generic(self._entity.get_tcp_pose)
+
+    @composer.observable
+    def tcp_position(self):
+        return observable.Generic(lambda physics: self._entity.get_tcp_pose(physics)[:3])
 
 
 def test_ur5e_position_controllers_servoL():

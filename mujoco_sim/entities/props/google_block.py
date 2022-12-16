@@ -3,6 +3,7 @@ from typing import List, Tuple
 
 import numpy as np
 from dm_control import composer, mjcf
+from dm_control.composer.observation import observable
 
 from mujoco_sim.entities.utils import get_assets_root_folder
 
@@ -68,6 +69,15 @@ class GoogleBlockProp(composer.Entity):
 
     def get_position(self, physics: mjcf.Physics):
         return physics.bind(self.object_body).pos
+
+    def _build_observables(self):
+        return GoogleBlockObservables(self)
+
+
+class GoogleBlockObservables(composer.Observables):
+    @composer.observable
+    def position(self):
+        return observable.Generic(self._entity.get_position)
 
 
 if __name__ == "__main__":

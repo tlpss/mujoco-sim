@@ -19,8 +19,8 @@ class EmptyRobotArena(composer.Entity):
             "geom", type="plane", size=[self.plane_length / 2, self.plane_length / 2, 0.1], rgba=[0.3, 0.3, 0.3, 1]
         )
         for x in [-self.plane_length, self.plane_length, 0.5]:
-            self.arena.worldbody.add("light", pos=[x, x, 3])
-            self.arena.worldbody.add("light", pos=[x, -x, 3])
+            self.arena.worldbody.add("light", pos=[x, x, 3], castshadow=False)
+            self.arena.worldbody.add("light", pos=[x, -x, 3], castshadow=False)
         return self.arena
 
     @property

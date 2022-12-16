@@ -46,6 +46,7 @@ REWARD_TYPES = (SPARSE_REWARD, DENSE_POTENTIAL_REWARD, DENSE_NEG_DISTANCE_REWARD
 OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
 TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, -0.5, 2.4]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
+FRONT_TILTED_CAMERA_CONFIG = CameraConfig(np.array([0.0, -1.1, 0.5]), np.array([-0.7, -0.35, 0, 0.0]), 70)
 
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
 
@@ -78,12 +79,12 @@ class RobotPositionWorkspace:
 class RobotPushConfig(TaskConfig):
     reward_type: str = DENSE_NEG_DISTANCE_REWARD
     observation_type: str = STATE_OBS
-    max_step_size: float = 0.02
+    max_step_size: float = 0.05
     physics_timestep: float = 0.002  # MJC default =0.002 (500Hz)
-    control_timestep: float = 0.1
-    max_control_steps_per_episode: int = 200
+    control_timestep: float = 0.5
+    max_control_steps_per_episode: int = 100
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
-    image_resolution: int = 128
+    image_resolution: int = 64
 
     target_radius = 0.1
     n_objects: int = 5
@@ -115,33 +116,39 @@ class RobotPushTask(composer.Task):
             pos=[0.0, -0.5, 0.001],
         )
 
-        self.robot_workspace = RobotPositionWorkspace((-0.5, 0.5), (-0.7, -0.3), (0.03, 0.03))
+        self.robot_workspace = RobotPositionWorkspace((-0.5, 0.5), (-0.7, -0.3), (0.03, 0.015))
         self.object_spawn_space = RobotPositionWorkspace((-0.4, 0.4), (-0.6, -0.4), (0.05, 0.2))
         self.target_spawn_space = RobotPositionWorkspace((-0.3, 0.3), (-0.6, -0.4), (0.001, 0.001))
 
+        # for debugging camera views etc: add workspace to scene
+        # self.workspace_geom = self._arena.mjcf_model.worldbody.add("site",name="workspace",type="box",size=[1.0/2,0.4/2,0.001],pos=[0.0,-0.5,0.001],rgba=[1.0,0.0,0.0,1.0])
+
         # add Camera to scene
-        top_down_config = TOP_DOWN_CAMERA_CONFIG
-        top_down_config.image_width = top_down_config.image_height = self.config.image_resolution
-        self.camera = Camera(top_down_config)
+        camera_config = FRONT_TILTED_CAMERA_CONFIG
+        camera_config.image_width = camera_config.image_height = self.config.image_resolution
+        self.camera = Camera(camera_config)
         self._arena.attach(self.camera)
 
         # set timesteps
         self.physics_timestep = self.config.physics_timestep
         self.control_timestep = self.config.control_timestep
         self.objects = []
+        self._create_objects()
 
         # create additional observables / Sensors
         self.goal_position_observable = observable.Generic(lambda physics: physics.bind(self.target).pos[:2])
+        self.block_position_observable = observable.Generic(self.get_object_positions)
         self._task_observables = {
             "target_position": self.goal_position_observable,
+            "block_positions": self.block_position_observable,
         }
         self._configure_observables()
 
     def _configure_observables(self):
         if self.config.observation_type == STATE_OBS:
             self.goal_position_observable.enabled = True
+            self.block_position_observable.enabled = True
             self.robot.observables.tcp_position.enabled = True
-            # TODO: add object positions
 
         elif self.config.observation_type == VISUAL_OBS:
             self.camera.observables.rgb_image.enabled = True
@@ -160,15 +167,15 @@ class RobotPushTask(composer.Task):
 
         self.randomize_object_position(physics)
 
-        # self.block.set_pose(physics, np.concatenate([self.robot_workspace.sample(), TOP_DOWN_QUATERNION]))
+        # give objects time to drop onto the table
+        for _ in range(150):
+            physics.step()
 
     def _create_objects(self):
         self.objects = [GoogleBlockProp.sample_random_object() for _ in range(self.config.n_objects)]
         self.object_joints = []
         for object in self.objects:
             self.object_joints.append(self._arena.attach(object).add("freejoint"))
-        # randomize locations
-        # and repeat until everything is collision free
 
     def randomize_object_position(self, physics):
 
@@ -177,7 +184,11 @@ class RobotPushTask(composer.Task):
             for object_joint in self.object_joints:
                 physics.named.data.qpos[object_joint.full_identifier][:3] = self.object_spawn_space.sample()
                 physics.named.data.qpos[object_joint.full_identifier][3:] = np.array([1, 0, 0, 0])
-            colliding = False  # physics.data.ncon > 0
+            physics.forward()  # forward to set new poses and update collision detection
+            colliding = physics.data.ncon > 0
+
+    def get_object_positions(self, physics):
+        return np.array([object.get_position(physics)[:2] for object in self.objects]).flatten()
 
     @property
     def root_entity(self):
@@ -187,13 +198,16 @@ class RobotPushTask(composer.Task):
         if action is None:
             return
         assert action.shape == (2,)
+        action *= self.config.max_step_size
+
         current_position = self.robot.get_tcp_pose(physics)[:3]
-        print("-")
-        print(current_position)
         target_position = np.copy(current_position)
         target_position[:2] += action
         target_position = self.robot_workspace.clip_to_workspace(target_position)
-        print(target_position)
+        # debug info for action
+        # print("-")
+        # print(current_position)
+        # print(target_position)
         self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def get_reward(self, physics):
@@ -202,12 +216,28 @@ class RobotPushTask(composer.Task):
             return sum([distance < self.config.target_radius for distance in distances])
         else:
             # normalize by max distance to get a reward between 0 and 1
-            max_distances = self.config.n_objects * 1.0  # raw approximation
-            return (max_distances - sum(self._get_object_distances_to_target(physics))) / max_distances
+            # max_distances = self.config.n_objects * 1.0  # raw approximation
+            # return (max_distances - sum(self._get_object_distances_to_target(physics))) / max_distances
+
+            reward = -sum(self._get_object_distances_to_target(physics)) / self.config.n_objects
+
+            # get distance between robot and objects to encourage robot to move (exploration)
+            distance_to_nearest_object = min(
+                [
+                    np.linalg.norm(self.robot.get_tcp_pose(physics)[:2] - object.get_position(physics)[:2])
+                    for object in self.objects
+                ]
+            )
+            reward += 0.1 * distance_to_nearest_object
+
+            return reward
 
     def action_spec(self, physics):
         del physics
-        bound = np.array([self.config.max_step_size, self.config.max_step_size])
+        # bound = np.array([self.config.max_step_size, self.config.max_step_size])
+
+        # normalized action space and resclaed in before_step
+        bound = np.array([1.0, 1.0])
         return specs.BoundedArray(shape=(2,), dtype=np.float32, minimum=-bound, maximum=bound)
 
     def get_discount(self, physics):
@@ -240,7 +270,7 @@ def create_random_policy(environment: composer.Environment):
     environment.observation_spec()
 
     def random_policy(time_step):
-        return np.array([0.01, 0])
+        # return np.array([0.01, 0])
         return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
 
     return random_policy
@@ -250,12 +280,11 @@ if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = RobotPushTask(RobotPushConfig(observation_type=VISUAL_OBS))
+    task = RobotPushTask(RobotPushConfig(observation_type=STATE_OBS))
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
-    import matplotlib.pyplot as plt
 
-    plt.imshow(timestep.observation["Camera/rgb_image"])
+    # plt.imshow(timestep.observation["Camera/rgb_image"])
     # plt.show()
     print(environment.action_spec())
     print(environment.observation_spec())
