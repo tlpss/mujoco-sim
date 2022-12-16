@@ -64,7 +64,11 @@ class JointTrajectory:
 
     def _clip_timestep(self, t: float) -> float:
         """clips the timestep to the range of the waypoints"""
-        return np.clip(t, self.waypoints[0].timestep, self.waypoints[-1].timestep)
+
+        # for scalars, min(max()) is about 100x faster than np.clip()
+        # https://github.com/numpy/numpy/issues/14281#issuecomment-552472647
+
+        return min(max(t, self.waypoints[0].timestep), self.waypoints[-1].timestep)
 
     def get_target_joint_positions(self, t: float) -> JOINT_CONFIGURATION_TYPE:
         """returns the target joint positions at time t by linear interpolation between the waypoints"""

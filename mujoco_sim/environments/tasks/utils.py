@@ -35,7 +35,7 @@ if __name__ == "__main__":
     from mujoco_sim.environments.dmc2gym import DMCWrapper
     from mujoco_sim.environments.tasks.robot_planar_push import RobotPushConfig, RobotPushTask
 
-    config = RobotPushConfig(observation_type="state_observations")
+    config = RobotPushConfig(observation_type="visual_observations")
     dmc_env = Environment(RobotPushTask(config=config), strip_singleton_obs_buffer_dim=True)
     gym_env = DMCWrapper(dmc_env, flatten_observation_space=False)
 
