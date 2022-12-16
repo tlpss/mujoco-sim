@@ -80,7 +80,9 @@ class RobotPushConfig(TaskConfig):
     reward_type: str = DENSE_NEG_DISTANCE_REWARD
     observation_type: str = STATE_OBS
     max_step_size: float = 0.05
-    physics_timestep: float = 0.002  # MJC default =0.002 (500Hz)
+    # timestep is main driver of simulation speed..
+    # higher steps start to result in unstable physics
+    physics_timestep: float = 0.01  # MJC default =0.002 (500Hz)
     control_timestep: float = 0.5
     max_control_steps_per_episode: int = 100
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold

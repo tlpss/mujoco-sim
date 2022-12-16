@@ -280,8 +280,10 @@ class UR5e(composer.Entity):
             physics.bind(self.actuators).ctrl = self.joint_trajectory.get_target_joint_positions(physics.time())
 
             # log low-level joint data
-            self.joint_position_history.append(self.get_joint_positions(physics))
-            self.joint_target_history.append(self.joint_trajectory.get_target_joint_positions(physics.time()))
+            # TODO: should create wrapper around robot to do logging instead of doing it here.
+            # bc it slows down the simulation..
+            # self.joint_position_history.append(self.get_joint_positions(physics))
+            # self.joint_target_history.append(self.joint_trajectory.get_target_joint_positions(physics.time()))
 
             if self.joint_trajectory.is_finished(physics.timestep()):
                 self.joint_trajectory = None
