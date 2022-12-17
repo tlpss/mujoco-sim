@@ -68,7 +68,8 @@ class GoogleBlockProp(composer.Entity):
         return GoogleBlockProp(block_category, scale, color)
 
     def get_position(self, physics: mjcf.Physics):
-        return physics.bind(self.object_body).pos
+        # do not use pos, but xpos instead
+        return physics.bind(self.object_body).xpos
 
     def _build_observables(self):
         return GoogleBlockObservables(self)
