@@ -93,7 +93,7 @@ class RobotPushConfig(TaskConfig):
     # coef for the additional reward term that encourages the robot
     # to touch the objects, only used with dense rewards.
     nearest_object_reward_coefficient: float = 0.1
-    target_radius = 0.1
+    target_radius = 0.02
     n_objects: int = 5
 
     def __post_init__(self):
@@ -226,6 +226,7 @@ class RobotPushTask(composer.Task):
             # max_distances = self.config.n_objects * 1.0  # raw approximation
             # return (max_distances - sum(self._get_object_distances_to_target(physics))) / max_distances
 
+            # return - np.linalg.norm(self.robot.get_tcp_pose(physics)[:2] - physics.bind(self.target).pos[:2])
             reward = -sum(self._get_object_distances_to_target(physics)) / self.config.n_objects
 
             # get distance between robot and objects to encourage robot to move (exploration)
@@ -235,7 +236,7 @@ class RobotPushTask(composer.Task):
                     for object in self.objects
                 ]
             )
-            reward += self.config.nearest_object_reward_coef * distance_to_nearest_object
+            reward -= self.config.nearest_object_reward_coefficient * distance_to_nearest_object
 
             return reward
 
@@ -278,16 +279,35 @@ def create_random_policy(environment: composer.Environment):
 
     def random_policy(time_step):
         # return np.array([0.01, 0])
+        print(time_step.reward)
         return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
 
     return random_policy
+
+
+def create_keyboard_policy(environment: composer.Environment):
+    def policy(time_step):
+        print(time_step.reward)
+        keyboard = input("input")
+        if keyboard == "i":
+            return np.array([0, 0.5])
+        if keyboard == "k":
+            return np.array([0, -0.5])
+        if keyboard == "j":
+            return np.array([-0.5, 0])
+        if keyboard == "l":
+            return np.array([0.5, 0])
+
+    return policy
 
 
 if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = RobotPushTask(RobotPushConfig(observation_type=STATE_OBS))
+    task = RobotPushTask(
+        RobotPushConfig(observation_type=STATE_OBS, nearest_object_reward_coefficient=0.1, n_objects=1)
+    )
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
 

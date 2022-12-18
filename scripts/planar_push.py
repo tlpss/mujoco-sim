@@ -4,7 +4,8 @@ import torch
 import wandb
 from dm_control.composer import Environment
 from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.sac.sac import SAC
 from wandb.integration.sb3 import WandbCallback
 
@@ -16,14 +17,14 @@ from mujoco_sim.gym_video_wrapper import VideoRecorderWrapper
 
 @dataclasses.dataclass
 class HyperConfig:
-    lr: float = 6e-4
+    lr: float = 1e-3
     tau: float = 0.005
-    gamma: float = 0.95
-    timesteps: int = 2000
+    gamma: float = 0.99
+    timesteps: int = 200000
     seed: int = 2022
     entropy_coefficient: int = "auto"
-    batch_size: int = 256
-    gradient_steps: int = 100
+    batch_size: int = 128
+    gradient_steps: int = 1
     num_envs: int = 1
 
 
@@ -31,14 +32,16 @@ if __name__ == "__main__":
 
     log_dir = _LOGGING_DIR / "pointmass-reach"
     config = HyperConfig()
-    task_config = RobotPushConfig(observation_type="state_observations")
+    task_config = RobotPushConfig(
+        observation_type="state_observations", n_objects=1, nearest_object_reward_coefficient=0.0
+    )
     dmc_env = Environment(RobotPushTask(task_config), strip_singleton_obs_buffer_dim=True)
 
     config_dict = dataclasses.asdict(config)
     config_dict.update(dataclasses.asdict(task_config))
     print(f"{config_dict=}")
     run = wandb.init(
-        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="offline", tags=["planar_push"]
+        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="online", tags=["planar_push"]
     )
     wandb.config.update(config_dict)  # strange but wandb did not set dict in init..?
     config = wandb.config  # get possibly updated config
@@ -55,10 +58,12 @@ if __name__ == "__main__":
                 log_wandb=True,
                 rescale_video_factor=1,
             )
+            env = Monitor(env)
         env.seed(config.seed + rank)
         return env
 
     vecenv = DummyVecEnv([lambda: create_env(i) for i in range(config.num_envs)])
+    vecenv = VecNormalize(vecenv, norm_obs=False, norm_reward=True, clip_reward=100)
     print(vecenv.action_space)
     print(vecenv.observation_space)
 
@@ -66,7 +71,7 @@ if __name__ == "__main__":
     # https://stable-baselines3.readthedocs.io/en/master/guide/custom_policy.html
     # #multiple-inputs-and-dictionary-observations
     policy_kwargs = {
-        "net_arch": dict(qf=[64], pi=[32]),  # extra NN in the CNN output! so conv2d-conv2d-conv2d-NN-NN
+        "net_arch": dict(qf=[64, 64], pi=[64, 64]),  # extra NN in the CNN output! so conv2d-conv2d-conv2d-NN-NN
         "share_features_extractor": True,
     }
     sac = SAC(

@@ -240,6 +240,9 @@ class UR5e(composer.Entity):
 
     def servoL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, time: float):
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        if target_joint_positions is None:
+            # failsafe for IK solver not finding a solution
+            return
         return self.servoJ(physics, target_joint_positions, time)
 
     def servoJ(self, physics, target_joint_positions, time: float):
@@ -267,7 +270,10 @@ class UR5e(composer.Entity):
         # speed is defined as largest joint movement divided by time
         speed = np.max(np.abs(difference_vector)) / time
 
-        assert speed < self.max_joint_speed, f"required joint speed {speed} is too high for this robot."
+        if speed > self.max_joint_speed:
+
+            print(f"required joint speed {speed} is too high for this robot.")
+            return
 
         start_time = physics.time()
         trajectory = JointTrajectory(
