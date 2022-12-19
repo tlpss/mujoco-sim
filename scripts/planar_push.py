@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 
 import torch
@@ -5,7 +6,7 @@ import wandb
 from dm_control.composer import Environment
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.sac.sac import SAC
 from wandb.integration.sb3 import WandbCallback
 
@@ -35,20 +36,22 @@ if __name__ == "__main__":
     task_config = RobotPushConfig(
         observation_type="state_observations", n_objects=1, nearest_object_reward_coefficient=0.0
     )
-    dmc_env = Environment(RobotPushTask(task_config), strip_singleton_obs_buffer_dim=True)
 
     config_dict = dataclasses.asdict(config)
     config_dict.update(dataclasses.asdict(task_config))
     print(f"{config_dict=}")
     run = wandb.init(
-        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="online", tags=["planar_push"]
+        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="offline", tags=["planar_push"]
     )
     wandb.config.update(config_dict)  # strange but wandb did not set dict in init..?
     config = wandb.config  # get possibly updated config
     print(config)
     torch.manual_seed(config.seed)
+    print("executing")
 
-    def create_env(rank):
+    def create_env(rank, seed, task_config):
+        print("creating env")
+        dmc_env = Environment(RobotPushTask(task_config), strip_singleton_obs_buffer_dim=True)
         env = DMCWrapper(dmc_env, flatten_observation_space=False, render_camera_id=0)
         if rank == 0:
             env = VideoRecorderWrapper(
@@ -59,11 +62,17 @@ if __name__ == "__main__":
                 rescale_video_factor=1,
             )
             env = Monitor(env)
-        env.seed(config.seed + rank)
+        env.seed(seed + rank)
         return env
 
-    vecenv = DummyVecEnv([lambda: create_env(i) for i in range(config.num_envs)])
-    vecenv = VecNormalize(vecenv, norm_obs=False, norm_reward=True, clip_reward=100)
+    # make deepcopy of seed to avoid
+    # a recursion error on the wandb.config.get()
+    # in the subproc create env
+    seed = copy.deepcopy(config.seed)
+    if config.num_envs == 1:
+        vecenv = DummyVecEnv([lambda: create_env(0, seed, task_config)])
+    else:
+        vecenv = SubprocVecEnv([lambda: create_env(i, seed, task_config) for i in range(config.num_envs)])
     print(vecenv.action_space)
     print(vecenv.observation_space)
 
@@ -86,7 +95,7 @@ if __name__ == "__main__":
         policy_kwargs=policy_kwargs,
         tensorboard_log=log_dir,
         buffer_size=200_000,
-        device="cuda",
+        device="cpu",
         # train_freq=(2,"episode"),
         # gradient_steps=config.gradient_steps,
         batch_size=config.batch_size,
