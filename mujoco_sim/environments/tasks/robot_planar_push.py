@@ -84,7 +84,7 @@ class RobotPushConfig(TaskConfig):
     max_step_size: float = 0.05
     # timestep is main driver of simulation speed..
     # higher steps start to result in unstable physics
-    physics_timestep: float = 0.01  # MJC default =0.002 (500Hz)
+    physics_timestep: float = 0.005  # MJC default =0.002 (500Hz)
     control_timestep: float = 0.5
     max_control_steps_per_episode: int = 100
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
@@ -123,9 +123,10 @@ class RobotPushTask(composer.Task):
             pos=[0.0, -0.5, 0.001],
         )
 
-        self.robot_workspace = RobotPositionWorkspace((-0.5, 0.5), (-0.7, -0.3), (0.03, 0.015))
-        self.object_spawn_space = RobotPositionWorkspace((-0.4, 0.4), (-0.6, -0.4), (0.05, 0.2))
-        self.target_spawn_space = RobotPositionWorkspace((-0.3, 0.3), (-0.6, -0.4), (0.001, 0.001))
+        self.robot_workspace = RobotPositionWorkspace((-0.25, 0.25), (-0.65, -0.35), (0.03, 0.015))
+        self.robot_spawn_space = RobotPositionWorkspace((-0.05, 0.05), (-0.55, -0.45), (0.02, 0.02))
+        self.object_spawn_space = RobotPositionWorkspace((-0.1, 0.1), (-0.6, -0.4), (0.05, 0.2))
+        self.target_spawn_space = RobotPositionWorkspace((-0.01, 0.01), (-0.01, -0.01), (0.001, 0.005))
 
         # for debugging camera views etc: add workspace to scene
         # self.workspace_geom = self._arena.mjcf_model.worldbody.add("site",name="workspace",type="box",size=[1.0/2,0.4/2,0.001],pos=[0.0,-0.5,0.001],rgba=[1.0,0.0,0.0,1.0])
@@ -166,7 +167,7 @@ class RobotPushTask(composer.Task):
         self._create_objects()
 
     def initialize_episode(self, physics, random_state):
-        robot_initial_pose = self.robot_workspace.sample()
+        robot_initial_pose = self.robot_spawn_space.sample()
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
 
         target_position = self.target_spawn_space.sample()
@@ -227,7 +228,7 @@ class RobotPushTask(composer.Task):
             # return (max_distances - sum(self._get_object_distances_to_target(physics))) / max_distances
 
             # return - np.linalg.norm(self.robot.get_tcp_pose(physics)[:2] - physics.bind(self.target).pos[:2])
-            reward = -sum(self._get_object_distances_to_target(physics)) / self.config.n_objects
+            reward = -sum(self._get_object_distances_to_target(physics)) / self.config.n_objects 
 
             # get distance between robot and objects to encourage robot to move (exploration)
             distance_to_nearest_object = min(
@@ -238,7 +239,7 @@ class RobotPushTask(composer.Task):
             )
             reward -= self.config.nearest_object_reward_coefficient * distance_to_nearest_object
 
-            return reward
+            return reward *0.1
 
     def action_spec(self, physics):
         del physics
