@@ -8,6 +8,6 @@ setuptools.setup(
     author_email="thomas.lips@ugent.be",
     description="",
     install_requires=["dm_control", "numpy", "gym<=0.21"],  # old API for now.
-    extras_require= {"sb3": ["stable-baselines3","tqdm","rich", "wandb","tensorboard"]}
+    extras_require={"sb3": ["stable-baselines3", "tqdm", "rich", "wandb", "tensorboard"]},
     packages=find_packages(),
 )
