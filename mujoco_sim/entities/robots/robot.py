@@ -225,7 +225,7 @@ class UR5e(composer.Entity):
     def set_joint_positions(self, physics: mjcf.Physics, joint_positions: np.ndarray):
         physics.bind(self.joints).qpos = joint_positions
         physics.bind(self.joints).qvel = np.zeros(self.dof)
-        physics.data.ctrl = joint_positions
+        physics.bind(self.actuators).ctrl = joint_positions
         self._reset_targets()
 
     # control API
