@@ -1,3 +1,4 @@
+import abc
 import dataclasses
 
 from dm_control import composer
@@ -10,23 +11,40 @@ class TaskConfig:
     max_control_steps_per_episode: int = 50
 
 
-class RobotTaskConfig(TaskConfig):
-    robot = None
-    gripper = None
-    arena = None
-
-
-class RobotTask(composer.Task):
+class RobotTask(composer.Task, abc.ABC):
     """Custom base class for Robot Tasks."""
 
-    CONFIG_CLASS = None
+    CONFIG_CLASS = TaskConfig
 
     def __init__(self, config: CONFIG_CLASS = None) -> None:
         super().__init__()
-        self.config = self.CONFIG_CLASS() if config is None else config
+        self.config: RobotTask.CONFIG_CLASS = self.CONFIG_CLASS() if config is None else config
+
+        self._task_observables = None  # Dict(str, Observable)
+        # TODO: Robot, EEF and arena could also be created here
 
     def _configure_observables(self):
         """
         enables the appropriate observables and optionally
         configures them with aggregators, noise...
         """
+        raise NotImplementedError
+
+    def is_task_accomplished(self) -> bool:
+        """
+        returns true if the task is solved
+        """
+        raise NotImplementedError
+
+    def should_terminate_episode(self, physics) -> bool:
+        accomplished = self.is_task_accomplished(physics)
+        time_limit = physics.time() >= self.config.max_control_steps_per_episode * self.control_timestep
+
+        return accomplished or time_limit
+
+    def get_discount(self, physics):
+        return 0.0 if self.is_task_accomplished(physics) else 1.0
+
+    @property
+    def task_observables(self):
+        return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}

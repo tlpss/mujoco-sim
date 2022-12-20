@@ -13,7 +13,7 @@ from dm_control.composer.observation import observable
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.utils import get_assets_root_folder
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
-from ur_ikfast.ur_ikfast import ur_kinematics
+from ur_ikfast import ur_kinematics
 
 
 def solve_ik_ikfast(
