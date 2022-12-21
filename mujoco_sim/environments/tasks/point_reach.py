@@ -176,6 +176,8 @@ class PointMassReachTask(composer.Task):
         elif self.config.reward_type == DENSE_NEG_DISTANCE_REWARD:
             return -self.distance_to_target
         elif self.config.reward_type == DENSE_BIASED_NEG_DISTANCE_REWARD:
+            # TODO: make this smarter by doing 1-tanh(b*distance) which is always positive.
+            # and configure it in such a way that the total reward / step is <=1 with 1 -> succesful termination?
             return -self.distance_to_target + 0.5  # attempt to make random policy reward positive
         elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
             return self.previous_distance_to_target - self.distance_to_target

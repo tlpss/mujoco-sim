@@ -6,7 +6,7 @@ import gym
 def benchmark_step_time(env: gym.Env, n_steps=2000):
     done = True
     start = time.time()
-    for _ in range(n_steps):
+    for i in range(n_steps):
         if done:
             obs = env.reset()  # noqa
             done = False
@@ -14,17 +14,29 @@ def benchmark_step_time(env: gym.Env, n_steps=2000):
             obs, reward, done, info = env.step(env.action_space.sample())  # noqa
     stop = time.time()
 
-    return (stop - start) / n_steps
+    return {"per_step": (stop - start) / n_steps, "total": (stop - start)}
+
+
+def cProfile(func, *args, **kwargs):
+    import cProfile
+    import pstats
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    print(func(*args, **kwargs))
+    profiler.disable()
+    stats = pstats.Stats(profiler).sort_stats("tottime")
+    stats.print_stats(50)
 
 
 if __name__ == "__main__":
     from dm_control.composer import Environment
 
     from mujoco_sim.environments.dmc2gym import DMCWrapper
-    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
+    from mujoco_sim.environments.tasks.robot_planar_push import RobotPushConfig, RobotPushTask
 
-    config = PointReachConfig(observation_type="visual_observations")
-    dmc_env = Environment(PointMassReachTask(config=config), strip_singleton_obs_buffer_dim=True)
+    config = RobotPushConfig(observation_type="visual_observations")
+    dmc_env = Environment(RobotPushTask(config=config), strip_singleton_obs_buffer_dim=True)
     gym_env = DMCWrapper(dmc_env, flatten_observation_space=False)
 
-    print(benchmark_step_time(gym_env))
+    print(cProfile(benchmark_step_time, gym_env, 1000))

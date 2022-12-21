@@ -1,0 +1,13 @@
+<mujoco model="cube">
+  <compiler angle="radian" autolimits="true" />
+  <size />
+  <default />
+  <asset>
+    <mesh name="cube" file="cube.obj" />
+  </asset>
+  <worldbody>
+    <body name="model">
+      <geom type="mesh" rgba="1 1 0.4 1" mesh="cube" quat="1 1 0 0 " />
+    </body>
+  </worldbody>
+</mujoco>

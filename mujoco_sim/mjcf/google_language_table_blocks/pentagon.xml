@@ -1,0 +1,13 @@
+<mujoco model="pentagon">
+  <compiler angle="radian" autolimits="true" />
+  <size />
+  <default />
+  <asset>
+    <mesh name="pentagon" file="pentagon.obj" />
+  </asset>
+  <worldbody>
+    <body name="model">
+      <geom type="mesh" rgba="1 1 0.4 1" quat="1 1 0 0 " mesh="pentagon" />
+    </body>
+  </worldbody>
+</mujoco>
