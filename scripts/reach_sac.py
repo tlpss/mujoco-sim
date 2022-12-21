@@ -23,8 +23,8 @@ class HyperConfig:
     gamma: float = 0.99
     timesteps: int = 200000
     seed: int = 2022
-    entropy_coefficient: int = "auto"
-    batch_size: int = 128
+    entropy_coefficient: int = 0.005
+    batch_size: int = 32
     gradient_steps: int = 1
     num_envs: int = 1
 
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     log_dir = _LOGGING_DIR / "robot-reach"
     config = HyperConfig()
     task_config = RobotReachConfig(
-        observation_type=RobotReachConfig.STATE_OBS,
+        observation_type=RobotReachConfig.VISUAL_OBS,
         max_control_steps_per_episode=30,
     )
 
