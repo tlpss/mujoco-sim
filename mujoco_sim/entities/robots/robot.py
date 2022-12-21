@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import warnings
 from collections import deque
 from typing import Optional
@@ -11,121 +10,71 @@ from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 
 from mujoco_sim.entities.eef.cylinder import EEF
+from mujoco_sim.entities.robots.joint_trajectory import JointTrajectory, Waypoint
 from mujoco_sim.entities.utils import get_assets_root_folder
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 from ur_ikfast import ur_kinematics
 
 
-def solve_ik_ikfast(
-    solver: ur_kinematics.URKinematics, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE
-) -> Optional[JOINT_CONFIGURATION_TYPE]:
-    """analytical (global) IK, returns the solution that is closest to the current joint configuration
+class IKSolver:
+    def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
+        raise NotImplementedError("IK solver not implemented")
+
+
+class URIKFastSolver(IKSolver):
+    """IKFast analytical (global) IK for UR robots, returns the solution that is closest to the current joint configuration
     without taking collisions into account.
-    """
-    targj = None
-    for _ in range(6):
-        # fix for axis-aligned orientations (which is often used in e.g. top-down EEF orientations
-        # add random noise to the EEF orienation to avoid axis-alignment
-        # see https://github.com/cambel/ur_ikfast/issues/4
-        pose[3:] += np.random.randn(4) * 0.001
-        targj = solver.inverse(pose, q_guess=q_guess)
-        if targj is not None:
-            break
-
-    if targj is None:
-        warnings.warn("IKFast failed... most likely the pose is out of reach of the robot?")
-    return targj
-
-
-@dataclasses.dataclass
-class Waypoint:
-    joint_positions: JOINT_CONFIGURATION_TYPE
-    timestep: float
-
-
-class JointTrajectory:
-    """A container to hold a joint trajectory defined by a number of (key) waypoints.
-    The trajectory is defined by linear interpolation between the waypoints.
-
-    Note that this might not be a smooth trajectory, as the joint velocities/accelerations are not guarantueed to be continuous
-    for the interpolated trajectory. To overcome this, use an appropriate trajectory generator and timestep to provide the
-    waypoints in this trajectory so that the discontinuities that are introduced by the linear interpolation are small.
+    uses https://github.com/cambel/ur_ikfast
     """
 
-    def __init__(self, waypoints: list[Waypoint]):
-        # # sort by timestep to make sure that the waypoints are in order
-        self.waypoints = sorted(waypoints, key=lambda x: x.timestep)
+    ROBOT_TYPES = ("ur5e", "ur10e", "ur3e", "ur3", "ur5", "ur10")
 
-    def get_nearest_waypoints(self, t: float) -> tuple[Waypoint, Waypoint]:
-        for i in range(len(self.waypoints) - 1):
-            if t >= self.waypoints[i].timestep and t <= self.waypoints[i + 1].timestep:
-                return self.waypoints[i], self.waypoints[i + 1]
-        raise ValueError("should not be here")
+    def __init__(self, robot_type: str = "ur5e"):
+        assert robot_type in self.ROBOT_TYPES
+        self._ik_solver = ur_kinematics.URKinematics(robot_type)
 
-    def _clip_timestep(self, t: float) -> float:
-        """clips the timestep to the range of the waypoints"""
+    def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
 
-        # for scalars, min(max()) is about 100x faster than np.clip()
-        # https://github.com/numpy/numpy/issues/14281#issuecomment-552472647
+        targj = None
+        for _ in range(6):
+            # fix for axis-aligned orientations (which is often used in e.g. top-down EEF orientations
+            # add random noise to the EEF orienation to avoid axis-alignment
+            # see https://github.com/cambel/ur_ikfast/issues/4
+            pose[3:] += np.random.randn(4) * 0.001
+            targj = self._ik_solver.inverse(pose, q_guess=q_guess)
+            if targj is not None:
+                break
 
-        return min(max(t, self.waypoints[0].timestep), self.waypoints[-1].timestep)
-
-    def get_target_joint_positions(self, t: float) -> JOINT_CONFIGURATION_TYPE:
-        """returns the target joint positions at time t by linear interpolation between the waypoints"""
-        t = self._clip_timestep(t)
-        previous_waypoint, next_waypoint = self.get_nearest_waypoints(t)
-        t0, q0 = previous_waypoint.timestep, previous_waypoint.joint_positions
-        t1, q1 = next_waypoint.timestep, next_waypoint.joint_positions
-        return q0 + (q1 - q0) * (t - t0) / (t1 - t0)
-
-    def get_target_joint_velocities(self, t: float) -> JOINT_CONFIGURATION_TYPE:
-        """returns the target joint velocities at time t by linear interpolation between the waypoints"""
-        t = self._clip_timestep(t)
-        previous_waypoint, next_waypoint = self.get_nearest_waypoints(t)
-        t0, q0 = previous_waypoint.timestep, previous_waypoint.joint_positions
-        t1, q1 = next_waypoint.timestep, next_waypoint.joint_positions
-        return (q1 - q0) / (t1 - t0)
-
-    def is_finished(self, t: float) -> bool:
-        """returns True if the trajectory is finished at time t"""
-        return t >= self.waypoints[-1].timestep
+        if targj is None:
+            warnings.warn("IKFast failed... most likely the pose is out of reach of the robot?")
+        return targj
 
 
-class UR5e(composer.Entity):
+class Robot(composer.Entity):
     """
-    Robot
+    position-controlled Robot base class, should implement the airo-core interface..
     """
 
-    XML_PATH = "mujoco_menagerie/universal_robots_ur5e/ur5e.xml"
-
-    # defines the base frame
-    _BASE_BODY_NAME = "base"
-
+    XML_PATH: str = None
+    _BASE_BODY_NAME: str = None
     # site that defines the frame to attach EEF
     #  (and is used internally for IK as it is the last element in the robot kinematics tree)
-    _FLANGE_SITE_NAME = "attachment_site"
+    _FLANGE_SITE_NAME: str = None
+    home_joint_positions: JOINT_CONFIGURATION_TYPE = None
+    max_joint_speed: float = None
 
-    home_joint_positions = np.array([-0.5, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
-    max_joint_speed = 1.0  # rad/s - https://store.clearpathrobotics.com/products/ur3e
-
-    def __init__(self) -> None:
+    def __init__(self, ik_solver: IKSolver) -> None:
         """
-        _model: the xml tree is built top-down, to make sure that you always have acces to entire scene so far,
-        including the worldbody (for creating mocaps, which have to be children of the worldbody)
-        or can define equalities with other elements.
+        ik_
         """
 
         self.physics = None
         self._model = None
-        self.tcp_in_flange_pose: POSE_TYPE = np.array(
-            [0, 0, 0, 0, 0, 0, 1.0]
-        )  # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
 
+        # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
+        self.tcp_in_flange_pose: POSE_TYPE = np.array([0, 0, 0, 0, 0, 0, 1.0])
         self.joint_trajectory: Optional[JointTrajectory] = None
-
-        self.commanded_joint_positions = np.zeros(6)
-
-        self.ik_fast_solver = ur_kinematics.URKinematics("ur5e")
+        self.ik_solver = ik_solver
 
         # used for visualization of the performances of the low-level controllers
         self.joint_position_history = deque(maxlen=10000)
@@ -156,7 +105,7 @@ class UR5e(composer.Entity):
 
     def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
-        joint_config = solve_ik_ikfast(self.ik_fast_solver, flange_pose, self.home_joint_positions)
+        joint_config = self.ik_solver.solve_ik(flange_pose, self.home_joint_positions)
         return joint_config
 
     def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
@@ -211,11 +160,9 @@ class UR5e(composer.Entity):
 
     def _reset_targets(self):
         self.joint_trajectory = None
-        self.joint_target_positions = None
 
     def set_tcp_pose(self, physics: mjcf.Physics, pose: np.ndarray):
-        flange_pose = self._get_flange_pose_from_tcp_pose(pose)
-        joint_positions = solve_ik_ikfast(self.ik_fast_solver, flange_pose, self.home_joint_positions)
+        joint_positions = self.get_joint_positions_from_tcp_pose(pose)
         if joint_positions is not None:
             self.set_joint_positions(physics, joint_positions)
         else:
@@ -234,9 +181,24 @@ class UR5e(composer.Entity):
         raise NotImplementedError
 
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
+        if speed > self.max_joint_speed:
+            print(f"required joint speed {speed} is too high for this robot.")
+            return
+
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
-        if target_joint_positions is not None:
-            self.joint_target_positions = target_joint_positions
+        if target_joint_positions is None:
+            # TODO : log IK failed
+            return
+
+        current_joint_positions = self.get_joint_positions(physics)
+        difference_vector = target_joint_positions - current_joint_positions
+        time = np.max(np.abs(difference_vector)) / speed
+
+        start_time = physics.time()
+        trajectory = JointTrajectory(
+            [Waypoint(current_joint_positions, start_time), Waypoint(target_joint_positions, start_time + time)]
+        )
+        self.joint_trajectory = trajectory
 
     def servoL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, time: float):
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
@@ -295,7 +257,7 @@ class UR5e(composer.Entity):
                 self.joint_trajectory = None
 
     def is_moving(self) -> bool:
-        return self.tcp_target_pose is not None or self.joint_target_positions is not None
+        return self.joint_trajectory is not None
 
     # def _build_observables(self):
     #     # joint positions, joint velocities
@@ -317,11 +279,25 @@ class RobotObservables(composer.Observables):
         return observable.Generic(lambda physics: self._entity.get_tcp_pose(physics)[:3])
 
 
+class UR5e(Robot):
+    XML_PATH = "mujoco_menagerie/universal_robots_ur5e/ur5e.xml"
+
+    # obtained manually from the XML
+    _BASE_BODY_NAME = "base"
+    _FLANGE_SITE_NAME = "attachment_site"
+
+    home_joint_positions = np.array([-0.5, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
+    max_joint_speed = 1.0  # rad/s - https://store.clearpathrobotics.com/products/ur3e
+
+    def __init__(self):
+        solver = URIKFastSolver("ur5e")
+        super().__init__(solver)
+
+
 def test_ur5e_position_controllers_servoL():
-    frequency = 10
+    frequency = 20
 
     robot = UR5e()
-    print(f" flange home pos according to ikfast: {robot.ik_fast_solver.forward(np.zeros(6))}")
     model = robot.mjcf_model
     physics = mjcf.Physics.from_mjcf_model(model)
 

@@ -121,6 +121,7 @@ class RobotReachTask(RobotTask):
             self.camera.observables.rgb_image.enabled = True
 
     def initialize_episode(self, physics, random_state):
+        super().initialize_episode(physics, random_state)
         robot_initial_pose = self.robot_spawn_space.sample()
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
 
@@ -137,6 +138,7 @@ class RobotReachTask(RobotTask):
         Args:
             action (_type_): [-1,1] x action_dim
         """
+        super().before_step(physics, action, random_state)
         if action is None:
             return
         assert action.shape == (3,)

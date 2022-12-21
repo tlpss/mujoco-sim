@@ -31,8 +31,6 @@ class RobotTask(composer.Task, abc.ABC):
     def before_step(self, physics, action, random_state):
         self.episode_step += 1
 
-        return super().before_step(physics, action, random_state)
-
     def _configure_observables(self):
         """
         enables the appropriate observables and optionally
