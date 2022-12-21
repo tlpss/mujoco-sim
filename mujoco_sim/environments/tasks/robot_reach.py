@@ -44,11 +44,11 @@ class RobotReachConfig(TaskConfig):
     # higher steps start to result in unstable physics
     physics_timestep: float = 0.005  # MJC default =0.002 (500Hz)
     control_timestep: float = 0.5
-    max_control_steps_per_episode: int = 100
-    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
-    image_resolution: int = 64
+    max_control_steps_per_episode: int = 20
+    image_resolution: int = 96
 
-    target_radius = 0.02  # radius of the target site
+    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
+    target_radius = 0.03  # radius of the target site
 
     cameraconfig: CameraConfig = None
 
@@ -91,7 +91,7 @@ class RobotReachTask(RobotTask):
         self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
 
         # for debugging camera views etc: add workspace to scene
-        # self.workspace_geom = self._arena.mjcf_model.worldbody.add("site",name="workspace",type="box",size=[1.0/2,0.4/2,0.001],pos=[0.0,-0.5,0.001],rgba=[1.0,0.0,0.0,1.0])
+        # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
         camera_config = self.config.cameraconfig
@@ -171,7 +171,7 @@ class RobotReachTask(RobotTask):
         return specs.BoundedArray(shape=(3,), dtype=np.float32, minimum=-bound, maximum=bound)
 
     def is_task_accomplished(self, physics) -> bool:
-        return self._robot_distance_to_target(physics) < self.config.target_radius
+        return self._robot_distance_to_target(physics) < self.config.goal_distance_threshold
 
 
 def create_random_policy(environment: composer.Environment):

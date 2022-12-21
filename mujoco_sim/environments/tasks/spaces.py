@@ -25,3 +25,20 @@ class EuclideanSpace:
         return np.array(
             [np.random.uniform(*self.x_range), np.random.uniform(*self.y_range), np.random.uniform(*self.z_range)]
         )
+
+    def create_visualization_site(self, worldbody, name: str):
+        x, y, z = sum(self.x_range) / 2, sum(self.y_range) / 2, sum(self.z_range) / 2
+        x_size, y_size, z_size = (
+            self.x_range[1] - self.x_range[0],
+            self.y_range[1] - self.y_range[0],
+            self.z_range[1] - self.z_range[0],
+        )
+        eps = 0.001  # to deal with 2D or 1D spaces
+        return worldbody.add(
+            "site",
+            name=name,
+            pos=[x, y, z],
+            size=[abs(x_size / 2) + eps, abs(y_size / 2) + eps, abs(z_size / 2) + eps],
+            type="box",
+            rgba=[1, 1, 1, 0.5],
+        )

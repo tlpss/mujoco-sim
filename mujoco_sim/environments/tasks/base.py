@@ -23,6 +23,16 @@ class RobotTask(composer.Task, abc.ABC):
         self._task_observables = None  # Dict(str, Observable)
         # TODO: Robot, EEF and arena could also be created here
 
+    def initialize_episode(self, physics, random_state):
+        # use counter instead of physics.time() to deal with
+        # synchronous interactions (varying #physics.steps() per control step)
+        self.episode_step = 0
+
+    def before_step(self, physics, action, random_state):
+        self.episode_step += 1
+
+        return super().before_step(physics, action, random_state)
+
     def _configure_observables(self):
         """
         enables the appropriate observables and optionally
@@ -38,11 +48,14 @@ class RobotTask(composer.Task, abc.ABC):
 
     def should_terminate_episode(self, physics) -> bool:
         accomplished = self.is_task_accomplished(physics)
-        time_limit = physics.time() >= self.config.max_control_steps_per_episode * self.control_timestep
+        time_limit = self.episode_step >= self.config.max_control_steps_per_episode
 
         return accomplished or time_limit
 
     def get_discount(self, physics):
+        # properly handle truncation of inifite horizon tasks
+        # by returning 0.0 only if the task is accomplished
+        # cf gym v0.26 breaking change
         return 0.0 if self.is_task_accomplished(physics) else 1.0
 
     @property

@@ -94,14 +94,13 @@ class RobotPushTask(RobotTask):
         )
 
         # create robot workspace and all the spawn spaces
-        self.robot_workspace = EuclideanSpace((-0.25, 0.25), (-0.65, -0.35), (0.03, 0.015))
+        self.robot_workspace = EuclideanSpace((-0.10, 0.10), (-0.6, -0.4), (0.03, 0.015))
         self.robot_spawn_space = EuclideanSpace((-0.05, 0.05), (-0.55, -0.45), (0.02, 0.02))
-        self.object_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.05, 0.2))
-        self.target_spawn_space = EuclideanSpace((-0.01, 0.01), (-0.5, -0.5), (0.001, 0.005))
+        self.object_spawn_space = EuclideanSpace((-0.05, 0.05), (-0.55, -0.45), (0.05, 0.2))
+        self.target_spawn_space = EuclideanSpace((-0.01, 0.01), (-0.55, -0.45), (0.001, 0.005))
 
         # for debugging camera views etc: add workspace to scene
-        # self.workspace_geom = self._arena.mjcf_model.worldbody.add("site",name="workspace",type="box",size=[1.0/2,0.4/2,0.001],pos=[0.0,-0.5,0.001],rgba=[1.0,0.0,0.0,1.0])
-
+        # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
         # add Camera to scene
         camera_config = self.config.cameraconfig
         camera_config.image_width = camera_config.image_height = self.config.image_resolution
