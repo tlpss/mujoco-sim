@@ -7,53 +7,47 @@ from typing import Optional
 import numpy as np
 from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
+import robot_descriptions.loaders
+import robot_descriptions.loaders.mujoco
 
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.robots.joint_trajectory import JointTrajectory, Waypoint
 from mujoco_sim.entities.utils import get_assets_root_folder
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 
+from mujoco_sim.entities.robots.SE3Container import SE3Container
+import robot_descriptions
 
 class IKSolver:
     def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
         raise NotImplementedError("IK solver not implemented")
 
 
-class URIKFastSolver(IKSolver):
-    """IKFast analytical (global) IK for UR robots, returns the solution that is closest to the current joint configuration
-    without taking collisions into account.
-    uses https://github.com/cambel/ur_ikfast
-    """
 
-    ROBOT_TYPES = ("ur5e", "ur10e", "ur3e", "ur3", "ur5", "ur10")
-
+class AnalyticURIKsolver(IKSolver):
     def __init__(self, robot_type: str = "ur5e"):
-        assert robot_type in self.ROBOT_TYPES
-        self._ik_solver = ur_kinematics.URKinematics(robot_type)
+        try:
+            import ur_analytic_ik as ur_ik
+        except ImportError:
+            raise ImportError(
+                "ur_analytic_ik is not installed. Please install it from https://github.com/Victorlouisdg/ur-analytic-ik")
+        self.robot_type = robot_type
 
     def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
-
-        targj = None
-        for _ in range(6):
-            # fix for axis-aligned orientations (which is often used in e.g. top-down EEF orientations
-            # add random noise to the EEF orienation to avoid axis-alignment
-            # see https://github.com/cambel/ur_ikfast/issues/4
-            pose[3:] += np.random.randn(4) * 0.001
-            targj = self._ik_solver.inverse(pose, q_guess=q_guess)
-            if targj is not None:
-                break
-
-        if targj is None:
-            warnings.warn("IKFast failed... most likely the pose is out of reach of the robot?")
-        return targj
+        if self.robot_type == "ur5e":
+            from ur_analytic_ik import ur5e
+            # convert pose to homogeneous matrix
+            pose = SE3Container.from_quaternion_and_translation(pose[3:], pose[:3]).homogeneous_matrix
+            q = ur5e.inverse_kinematics_closest(pose,*q_guess)
 
 
 class Robot(composer.Entity):
     """
-    position-controlled Robot base class, should implement the airo-core interface..
+    position-controlled Robot base class
     """
 
-    XML_PATH: str = None
+    _MODEL_XML_PATH = None
+
     _BASE_BODY_NAME: str = None
     # site that defines the frame to attach EEF
     #  (and is used internally for IK as it is the last element in the robot kinematics tree)
@@ -67,7 +61,6 @@ class Robot(composer.Entity):
         """
 
         self.physics = None
-        self._model = None
 
         # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
         self.tcp_in_flange_pose: POSE_TYPE = np.array([0, 0, 0, 0, 0, 0, 1.0])
@@ -82,7 +75,7 @@ class Robot(composer.Entity):
         super().__init__()
 
     def _build(self):
-        self._model = mjcf.from_path(str(get_assets_root_folder() / self.XML_PATH))
+        self._model = mjcf.from_path(self._MODEL_XML_PATH)
         self.joints = self._model.find_all("joint")
         self.actuators = self._model.find_all("actuator")
         self.dof = len(self.joints)
@@ -94,8 +87,26 @@ class Robot(composer.Entity):
         return super().initialize_episode(physics, random_state)
 
     def attach_end_effector(self, end_effector: EEF):
+
+        # expand keyframe of the robot arm to account for the new DoFs
+        # code taken from https://github.com/google-deepmind/mujoco_menagerie/blob/main/FAQ.md#how-do-i-attach-a-hand-to-an-arm
+        physics = mjcf.Physics.from_mjcf_model(end_effector.mjcf_model)
+        robot_key_frame = self._model.find("key", "home")
+        if robot_key_frame is not None:
+            end_effector_key_frame = end_effector.mjcf_model.find("key", "home")
+            if end_effector_key_frame is None:
+                robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, np.zeros(physics.model.nu )])
+                robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, np.zeros(physics.model.nq)])
+            else:
+                robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, end_effector_key_frame.ctrl])
+                robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, end_effector_key_frame.qpos])
+        
         self.attach(end_effector, self.flange)
+
+        # update the TCP offset (bookkeeping)
         self.tcp_in_flange_pose[:3] = end_effector.tcp_offset
+
+
 
     @property
     def mjcf_model(self):
@@ -119,7 +130,7 @@ class Robot(composer.Entity):
         tcp_in_base_matrix = flange_in_base_matrix @ tcp_in_flange_matrix
         tcp_in_base_se3 = SE3Container.from_homogeneous_matrix(tcp_in_base_matrix)
         tcp_in_base_pose = np.concatenate(
-            [tcp_in_base_se3.translation, tcp_in_base_se3.get_orientation_as_quaternion()]
+            [tcp_in_base_se3.translation, tcp_in_base_se3.orientation_as_quaternion]
         )
         return tcp_in_base_pose
 
@@ -134,7 +145,7 @@ class Robot(composer.Entity):
         flange_in_base_matrix = tcp_in_base_matrix @ flange_in_tcp_matrix
         flange_in_base_se3 = SE3Container.from_homogeneous_matrix(flange_in_base_matrix)
         flange_in_base_pose = np.concatenate(
-            [flange_in_base_se3.translation, flange_in_base_se3.get_orientation_as_quaternion()]
+            [flange_in_base_se3.translation, flange_in_base_se3.orientation_as_quaternion]
         )
         return flange_in_base_pose
 
@@ -149,7 +160,7 @@ class Robot(composer.Entity):
         flange_se3 = SE3Container.from_rotation_matrix_and_translation(flange_rotation_matrix, flange_position)
         return np.copy(
             self._get_tcp_pose_from_flange_pose(
-                np.concatenate([flange_se3.translation, flange_se3.get_orientation_as_quaternion()])
+                np.concatenate([flange_se3.translation, flange_se3.orientation_as_quaternion])
             )
         )
 
@@ -278,7 +289,6 @@ class RobotObservables(composer.Observables):
 
 
 class UR5e(Robot):
-    XML_PATH = "mujoco_menagerie/universal_robots_ur5e/ur5e.xml"
 
     # obtained manually from the XML
     _BASE_BODY_NAME = "base"
@@ -288,9 +298,12 @@ class UR5e(Robot):
     max_joint_speed = 1.0  # rad/s - https://store.clearpathrobotics.com/products/ur3e
 
     def __init__(self):
-        solver = URIKFastSolver("ur5e")
+        from robot_descriptions import ur5e_mj_description 
+        self._MODEL_XML_PATH = ur5e_mj_description.MJCF_PATH
+        solver = AnalyticURIKsolver("ur5e")
         super().__init__(solver)
 
+   
 
 def test_ur5e_position_controllers_servoL():
     frequency = 20
@@ -327,6 +340,7 @@ def test_ur5e_position_controllers_servoL():
     fig, axs = plt.subplots(6, 1, sharex=True)
     # create title for the whole figure
     fig.suptitle(f"Low-level joint position control under servoL @ {frequency} Hz")
+    print(robot.joint_position_history)
     for i in range(6):
         axs[i].plot(np.array(robot.joint_target_history)[:, i])
         axs[i].plot(np.array(robot.joint_position_history)[:, i])
@@ -337,8 +351,14 @@ def test_ur5e_position_controllers_servoL():
 
     plt.show()
 
-
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
 
-    test_ur5e_position_controllers_servoL()
+    robot = UR5e()
+    physics = mjcf.Physics.from_mjcf_model(robot.mjcf_model)
+
+    # force robot to move to a specific pose
+    joints = np.array([0.0, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
+    robot.set_joint_positions(physics, joints)
+    print(robot.get_tcp_pose(physics))
+    print(robot.get_joint_positions(physics))
+    print(joints)

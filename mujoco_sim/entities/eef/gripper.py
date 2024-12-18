@@ -6,7 +6,7 @@ from dm_control import mjcf
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.utils import get_assets_root_folder, write_xml
 from mujoco_sim.type_aliases import VECTOR_TYPE
-
+from robot_descriptions import robotiq_2f85_mj_description
 
 class ParallelGripper(EEF):
     @property
@@ -33,7 +33,7 @@ class ParallelGripper(EEF):
 
 
 class Robotiq2f85(ParallelGripper):
-    xml_path = get_assets_root_folder() / "mujoco_menagerie" / "robotiq_2f85" / "2f85.xml"
+    xml_path = robotiq_2f85_mj_description.MJCF_PATH
     max_driver_joint_angle = 0.8
 
     joint_home_positions = np.array([0.0, 0.0, 0.005, -0.01, 0.0, 0.0, 0.005, -0.01])

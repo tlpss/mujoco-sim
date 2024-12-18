@@ -124,9 +124,10 @@ class RobotReachTask(RobotTask):
         super().initialize_episode(physics, random_state)
         robot_initial_pose = self.robot_spawn_space.sample()
         self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
-
+        print("Robot initial pose: ", robot_initial_pose)
         target_position = self.target_spawn_space.sample()
         physics.bind(self.target).pos = target_position
+
 
     @property
     def root_entity(self):
@@ -188,11 +189,19 @@ def create_random_policy(environment: composer.Environment):
     return random_policy
 
 
+
+
 if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
     task = RobotReachTask(RobotReachConfig(observation_type=RobotReachConfig.STATE_OBS))
+
+    # dump task xml
+    from mujoco_sim.entities.utils import write_xml
+    from dm_control import mjcf
+
+    mjcf.export_with_assets(task._arena.mjcf_model, ".")
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
 
