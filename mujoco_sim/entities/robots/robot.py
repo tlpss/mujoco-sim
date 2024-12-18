@@ -9,6 +9,7 @@ from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 import robot_descriptions.loaders
 import robot_descriptions.loaders.mujoco
+import robot_descriptions.ur5e_mj_description
 
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.robots.joint_trajectory import JointTrajectory, Waypoint
@@ -39,6 +40,7 @@ class AnalyticURIKsolver(IKSolver):
             # convert pose to homogeneous matrix
             pose = SE3Container.from_quaternion_and_translation(pose[3:], pose[:3]).homogeneous_matrix
             q = ur5e.inverse_kinematics_closest(pose,*q_guess)
+            return q
 
 
 class Robot(composer.Entity):
@@ -150,13 +152,15 @@ class Robot(composer.Entity):
         return flange_in_base_pose
 
     def get_tcp_pose(self, physics=None) -> POSE_TYPE:
-        # TODO: make sure that pose is expressed in robot base frame
+        # TODO: make sure that pose is 
+        # expressed in robot base frame
         # now it is in the world frame.
 
         flange_position = physics.named.data.site_xpos[self.flange.full_identifier]
 
         flange_rotation_matrix = physics.named.data.site_xmat[self.flange.full_identifier]
         flange_rotation_matrix = np.array(flange_rotation_matrix).reshape(3, 3)
+
         flange_se3 = SE3Container.from_rotation_matrix_and_translation(flange_rotation_matrix, flange_position)
         return np.copy(
             self._get_tcp_pose_from_flange_pose(
@@ -362,3 +366,30 @@ if __name__ == "__main__":
     print(robot.get_tcp_pose(physics))
     print(robot.get_joint_positions(physics))
     print(joints)
+
+
+    # check robot pose -joint pairs correspond to IK 
+    robot = robot_descriptions.ur5e_mj_description.MJCF_PATH
+    robot = mjcf.from_path(robot)
+
+    robot.find("body","base").quat = [0,0,0,-1]
+    physics = mjcf.Physics.from_mjcf_model(robot)
+
+    joint_config = np.zeros(6)
+
+
+    physics.bind(robot.find_all("joint")).qpos = joint_config
+    
+    # get attachment site pose
+    attachment_site = robot.find("site", "attachment_site")
+    attachment_site_pose = physics.bind(attachment_site).xpos
+    attachment_site_orientation = physics.bind(attachment_site).xmat.reshape(3,3)
+    pose = np.eye(4)
+    pose[:3, :3] = attachment_site_orientation
+    pose[:3, 3] = attachment_site_pose
+    print(f"attachment site pose: \r\n {pose}")
+
+    import ur_analytic_ik
+    FK_pose = ur_analytic_ik.ur5e.forward_kinematics(*joint_config)
+    print(f"forward kinematics pose: \r\n {FK_pose}")
+

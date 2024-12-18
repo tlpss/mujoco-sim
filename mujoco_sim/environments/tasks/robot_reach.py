@@ -87,11 +87,11 @@ class RobotReachTask(RobotTask):
 
         # create robot workspace and all the spawn spaces
         self.robot_workspace = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
-        self.robot_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.4, -0.4), (0.02, 0.2))
+        self.robot_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
         self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
 
         # for debugging camera views etc: add workspace to scene
-        # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
+        self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
         camera_config = self.config.cameraconfig
@@ -118,13 +118,15 @@ class RobotReachTask(RobotTask):
             self.robot.observables.tcp_position.enabled = True
 
         elif self.config.observation_type == RobotReachConfig.VISUAL_OBS:
+            self.robot.observables.tcp_position.enabled = True
             self.camera.observables.rgb_image.enabled = True
 
     def initialize_episode(self, physics, random_state):
         super().initialize_episode(physics, random_state)
         robot_initial_pose = self.robot_spawn_space.sample()
-        self.robot.set_tcp_pose(physics, np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION]))
-        print("Robot initial pose: ", robot_initial_pose)
+        robot_initial_pose = np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION])
+        # ŧarget position 
+        self.robot.set_tcp_pose(physics, robot_initial_pose)
         target_position = self.target_spawn_space.sample()
         physics.bind(self.target).pos = target_position
 
@@ -151,6 +153,7 @@ class RobotReachTask(RobotTask):
         current_position = self.robot.get_tcp_pose(physics)[:3]
         target_position = np.copy(current_position)
         target_position[:3] += action
+        
         target_position = self.robot_workspace.clip_to_space(target_position)
         self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
@@ -200,6 +203,7 @@ if __name__ == "__main__":
     # dump task xml
     from mujoco_sim.entities.utils import write_xml
     from dm_control import mjcf
+    import matplotlib.pyplot as plt
 
     mjcf.export_with_assets(task._arena.mjcf_model, ".")
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
@@ -213,7 +217,7 @@ if __name__ == "__main__":
     # write_xml(task._arena.mjcf_model)
     img = task.camera.get_rgb_image(environment.physics)
 
-    # import matplotlib.pyplot as plt
-    # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
+    plt.imshow(img)
+    plt.show()
 
     viewer.launch(environment, policy=create_random_policy(environment))

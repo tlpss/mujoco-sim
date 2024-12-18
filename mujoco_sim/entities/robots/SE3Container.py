@@ -57,7 +57,8 @@ class SE3Container:
     def from_rotation_matrix_and_translation(
         cls, rotation_matrix: np.array, translation: Optional[np.array] = None
     ) -> SE3Container:
-        _assert_is_so3_matrix(rotation_matrix)
+        # ensure that the rotation matrix is a valid SO3 matrix
+        rotation_matrix = normalize_so3_matrix(rotation_matrix)
         return cls(SE3.Rt(rotation_matrix, translation))
 
     @classmethod
