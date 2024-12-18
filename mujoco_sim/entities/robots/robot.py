@@ -5,7 +5,6 @@ from collections import deque
 from typing import Optional
 
 import numpy as np
-from airo_core.spatial_algebra.se3 import SE3Container
 from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 
@@ -13,7 +12,6 @@ from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.robots.joint_trajectory import JointTrajectory, Waypoint
 from mujoco_sim.entities.utils import get_assets_root_folder
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
-from ur_ikfast import ur_kinematics
 
 
 class IKSolver:

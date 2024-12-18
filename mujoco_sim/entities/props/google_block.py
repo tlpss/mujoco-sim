@@ -88,3 +88,10 @@ if __name__ == "__main__":
     model = block.mjcf_model
     physics = mjcf.Physics.from_mjcf_model(model)
     print(block.get_position(physics))
+
+    # visualize mujoco scene
+
+    from dm_control import viewer
+
+    from mujoco import viewer
+    viewer.launch(block.mjcf_model)
