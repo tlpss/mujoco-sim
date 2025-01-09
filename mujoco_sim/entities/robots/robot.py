@@ -223,7 +223,7 @@ class Robot(composer.Entity):
         if target_joint_positions is None:
             # failsafe for IK solver not finding a solution
             print("IK failed")
-            return
+            raise ValueError("IK failed")
         return self.servoJ(physics, target_joint_positions, time)
 
     def servoJ(self, physics, target_joint_positions, time: float):

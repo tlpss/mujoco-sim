@@ -1,6 +1,14 @@
 """
-This task is a simple Reach task
- where the robot has to reach a target position with its end effector.
+This task is a simple Reach task where the robot has to reach a target position with its end effector.
+
+Observations are either proprioception and image or proprioception and target position
+
+Rewards are either sparse or dense negative distance reward
+
+Action space is either target TCP poses or target joint configurations
+
+The task is solved if the distance between the robot's end effector and the target is less than a threshold
+
 """
 from __future__ import annotations
 
@@ -31,20 +39,28 @@ class RobotReachConfig(TaskConfig):
     STATE_OBS = "state_observations"
     VISUAL_OBS = "visual_observations"
 
+    REL_EEF_ACTION = "relative_eef_action"
+    ABS_EEF_ACTION = "absolute_eef_action"
+    REL_JOIN_ACTION = "relative_joint_action"
+    ABS_JOIN_ACTION = "absolute_joint_action"
+
     REWARD_TYPES = (SPARSE_REWARD, DENSE_NEG_DISTANCE_REWARD)
     OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
+    ACTION_TYPES = (REL_EEF_ACTION, ABS_EEF_ACTION, REL_JOIN_ACTION, ABS_JOIN_ACTION)
 
     FRONT_TILTED_CAMERA_CONFIG = CameraConfig(np.array([0.0, -1.1, 0.5]), np.array([-0.7, -0.35, 0, 0.0]), 70)
 
     # actual config
     reward_type: str = None
     observation_type: str = None
+    action_type: str = None
+
     max_step_size: float = 0.05
     # timestep is main driver of simulation speed..
     # higher steps start to result in unstable physics
     physics_timestep: float = 0.005  # MJC default =0.002 (500Hz)
-    control_timestep: float = 0.5
-    max_control_steps_per_episode: int = 20
+    control_timestep: float = 0.1
+    max_control_steps_per_episode: int = 100
     image_resolution: int = 96
 
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
@@ -57,10 +73,14 @@ class RobotReachConfig(TaskConfig):
         # https://stackoverflow.com/questions/56665298/how-to-apply-default-value-to-python-dataclass-field-when-none-was-passed
         self.reward_type = self.reward_type or RobotReachConfig.DENSE_NEG_DISTANCE_REWARD
         self.observation_type = self.observation_type or RobotReachConfig.STATE_OBS
+        self.action_type = self.action_type or RobotReachConfig.ABS_EEF_ACTION
         self.cameraconfig = self.cameraconfig or RobotReachConfig.FRONT_TILTED_CAMERA_CONFIG
+
 
         assert self.observation_type in RobotReachConfig.OBSERVATION_TYPES
         assert self.reward_type in RobotReachConfig.REWARD_TYPES
+        assert self.action_type in RobotReachConfig.ACTION_TYPES
+
 
 
 class RobotReachTask(RobotTask):
@@ -91,7 +111,7 @@ class RobotReachTask(RobotTask):
         self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
 
         # for debugging camera views etc: add workspace to scene
-        self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
+        #self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
         camera_config = self.config.cameraconfig
@@ -100,7 +120,7 @@ class RobotReachTask(RobotTask):
         self._arena.attach(self.camera)
 
         # create additional observables / Sensors
-        self.goal_position_observable = observable.Generic(lambda physics: physics.bind(self.target).pos[:2])
+        self.goal_position_observable = observable.Generic(lambda physics: physics.bind(self.target).pos[:3])
 
         self._task_observables = {
             "target_position": self.goal_position_observable,
@@ -129,6 +149,8 @@ class RobotReachTask(RobotTask):
         self.robot.set_tcp_pose(physics, robot_initial_pose)
         target_position = self.target_spawn_space.sample()
         physics.bind(self.target).pos = target_position
+        print(f"target position: {target_position}")
+        print(self.goal_position_observable(physics))
 
 
     @property
@@ -145,17 +167,8 @@ class RobotReachTask(RobotTask):
         if action is None:
             return
         assert action.shape == (3,)
-
-        # scale action to max step size
-        action *= self.config.max_step_size
-        self.config
-
-        current_position = self.robot.get_tcp_pose(physics)[:3]
-        target_position = np.copy(current_position)
-        target_position[:3] += action
-        
-        target_position = self.robot_workspace.clip_to_space(target_position)
-        self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
+  
+        self.robot.servoL(physics, np.concatenate([action, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def _robot_distance_to_target(self, physics):
         return np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - physics.bind(self.target).xpos[:3])
@@ -173,9 +186,12 @@ class RobotReachTask(RobotTask):
         del physics
         # bound = np.array([self.config.max_step_size, self.config.max_step_size])
         # normalized action space, rescaled in before_step
-        bound = np.ones(3)
-        return specs.BoundedArray(shape=(3,), dtype=np.float32, minimum=-bound, maximum=bound)
+        if self.config.action_type == RobotReachConfig.ABS_EEF_ACTION:
+            return specs.BoundedArray(
+                shape=(3,), dtype=np.float64, minimum=[self.robot_workspace.x_range[0], self.robot_workspace.y_range[0], self.robot_workspace.z_range[0]], maximum=[self.robot_workspace.x_range[1], self.robot_workspace.y_range[1], self.robot_workspace.z_range[1]])
 
+        if self.config.action_type == RobotReachConfig.ABS_JOIN_ACTION:
+            return specs.BoundedArray()
     def is_task_accomplished(self, physics) -> bool:
         return self._robot_distance_to_target(physics) < self.config.goal_distance_threshold
 
@@ -191,6 +207,34 @@ def create_random_policy(environment: composer.Environment):
 
     return random_policy
 
+def create_demonstration_policy(environment: composer.Environment, noise_level = 0.0):
+    def demonstration_policy(time_step: composer.TimeStep):
+
+        assert isinstance(environment.task, RobotReachTask)
+        # get the current physics state
+        physics = environment.physics
+        # get the current robot pose
+        robot_pose = environment.task.robot.get_tcp_pose(physics)
+
+        # get the current target pose 
+        target_pose = physics.bind(environment.task.target).xpos
+
+        print("robot pose", robot_pose)
+        print("target pose", target_pose)
+
+        # calculate the action to reach the target
+        difference = target_pose - robot_pose[:3]
+
+        # add noise
+        difference += np.random.normal(0, noise_level, size=3)
+
+        # move at most 0.5m/s
+        difference = difference * 0.5 /np.max(np.abs(difference)) * environment.control_timestep()
+        action = robot_pose[:3] + difference
+        return action
+
+    return demonstration_policy
+
 
 
 
@@ -201,11 +245,11 @@ if __name__ == "__main__":
     task = RobotReachTask(RobotReachConfig(observation_type=RobotReachConfig.STATE_OBS))
 
     # dump task xml
-    from mujoco_sim.entities.utils import write_xml
     from dm_control import mjcf
     import matplotlib.pyplot as plt
 
-    mjcf.export_with_assets(task._arena.mjcf_model, ".")
+    #mjcf.export_with_assets(task._arena.mjcf_model, ".")
+
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
 
@@ -213,11 +257,9 @@ if __name__ == "__main__":
     # plt.show()
     print(environment.action_spec())
     print(environment.observation_spec())
-    # print(environment.step(None))
-    # write_xml(task._arena.mjcf_model)
     img = task.camera.get_rgb_image(environment.physics)
 
-    plt.imshow(img)
-    plt.show()
+    # plt.imshow(img)
+    # plt.show()
 
-    viewer.launch(environment, policy=create_random_policy(environment))
+    viewer.launch(environment, policy=create_demonstration_policy(environment))

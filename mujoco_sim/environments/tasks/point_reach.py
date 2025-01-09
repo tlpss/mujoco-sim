@@ -215,24 +215,6 @@ class PointMassReachTask(composer.Task):
         return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}
 
 
-# TODO: add observations to pointmass
-# TODO: create a separate entity for the goals and add observable to it.
-# combine them in the env
-
-# TODO: add camera (if pixel obs.)
-
-# How to represent mix of discrete and continuous actions in the replay buffer?
-
-# TODO: demonstration policy -> returns action when given a
-# How to convert to gym tuples (s,a,reward, done, info)?
-# and how to represent the observations?
-
-
-# state, proprio = 1D array
-# image = 3D array
-# tactile sensor can be 1D or 2D
-# combinations -> dict?
-
 
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
@@ -243,6 +225,20 @@ def create_random_policy(environment: composer.Environment):
 
     return random_policy
 
+
+def create_demonstation_policy(environment: composer.Environment, noise: float = 0.0):
+    assert isinstance(environment.task, PointMassReachTask)
+    def policy(time_step):
+        current_position = environment.task.pointmass.get_position(environment.physics)
+        target_position = environment.task._goal_position(environment.physics)
+
+        action = target_position - current_position
+        if noise > 0:
+            action *= (1+np.random.normal(0, noise, action.shape))
+        action *= 1/np.max(np.abs(action))* environment.task.config.max_step_size
+
+        return action
+    return policy
 
 if __name__ == "__main__":
     from dm_control import viewer
@@ -260,4 +256,4 @@ if __name__ == "__main__":
     # import matplotlib.pyplot as plt
     # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
 
-    viewer.launch(environment, policy=create_random_policy(environment))
+    viewer.launch(environment, policy=create_demonstation_policy(environment, noise=0.9))
