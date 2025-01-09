@@ -191,18 +191,23 @@ class Robot(composer.Entity):
     # control API
 
     def moveL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
-        raise NotImplementedError
-
+        raise NotImplementedError("moveL not implemented")
+    
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
         if speed > self.max_joint_speed:
             print(f"required joint speed {speed} is too high for this robot.")
-            return
+            
 
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
         if target_joint_positions is None:
             # TODO : log IK failed
+            print("IK failed")
             return
+        self.moveJ(physics, target_joint_positions, speed)
 
+        
+
+    def moveJ(self, physics: mjcf.Physics, target_joint_positions: np.ndarray, speed: float):
         current_joint_positions = self.get_joint_positions(physics)
         difference_vector = target_joint_positions - current_joint_positions
         time = np.max(np.abs(difference_vector)) / speed
@@ -217,6 +222,7 @@ class Robot(composer.Entity):
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
         if target_joint_positions is None:
             # failsafe for IK solver not finding a solution
+            print("IK failed")
             return
         return self.servoJ(physics, target_joint_positions, time)
 
@@ -246,9 +252,8 @@ class Robot(composer.Entity):
         speed = np.max(np.abs(difference_vector)) / time
 
         if speed > self.max_joint_speed:
-
             print(f"required joint speed {speed} is too high for this robot.")
-            return
+        
 
         start_time = physics.time()
         trajectory = JointTrajectory(
@@ -308,7 +313,12 @@ class UR5e(Robot):
         super().__init__(solver)
 
    
-
+    def _build(self):
+        ret =  super()._build()
+        # get the robot model and change the base orientation
+        self._model.find("body","base").quat = [0,0,0,-1]
+        return ret
+    
 def test_ur5e_position_controllers_servoL():
     frequency = 20
 
@@ -360,36 +370,22 @@ if __name__ == "__main__":
     robot = UR5e()
     physics = mjcf.Physics.from_mjcf_model(robot.mjcf_model)
 
+    # set physics step size
+    print(f"physics timestep: {physics.timestep()}")
+
     # force robot to move to a specific pose
     joints = np.array([0.0, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
     robot.set_joint_positions(physics, joints)
-    print(robot.get_tcp_pose(physics))
-    print(robot.get_joint_positions(physics))
-    print(joints)
+  
+    target_pose  = np.array([0.1, 0.3, 0.5, 1,0,0,0])
 
-
-    # check robot pose -joint pairs correspond to IK 
-    robot = robot_descriptions.ur5e_mj_description.MJCF_PATH
-    robot = mjcf.from_path(robot)
-
-    robot.find("body","base").quat = [0,0,0,-1]
-    physics = mjcf.Physics.from_mjcf_model(robot)
-
-    joint_config = np.zeros(6)
-
-
-    physics.bind(robot.find_all("joint")).qpos = joint_config
+    print(f"initial pose: {robot.get_tcp_pose(physics)}")
+    for _ in range(20):
+        robot.servoL(physics, target_pose, 0.2)
+        for _ in range(100):
+            robot.before_substep(physics, None)
+            physics.step()
     
-    # get attachment site pose
-    attachment_site = robot.find("site", "attachment_site")
-    attachment_site_pose = physics.bind(attachment_site).xpos
-    attachment_site_orientation = physics.bind(attachment_site).xmat.reshape(3,3)
-    pose = np.eye(4)
-    pose[:3, :3] = attachment_site_orientation
-    pose[:3, 3] = attachment_site_pose
-    print(f"attachment site pose: \r\n {pose}")
-
-    import ur_analytic_ik
-    FK_pose = ur_analytic_ik.ur5e.forward_kinematics(*joint_config)
-    print(f"forward kinematics pose: \r\n {FK_pose}")
+    print(f"final pose: {robot.get_tcp_pose(physics)}")
+    print(f"target pose: {target_pose}")
 
