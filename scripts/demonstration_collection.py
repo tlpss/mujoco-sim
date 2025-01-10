@@ -31,7 +31,6 @@ class UI:
         pygame.init()
         self.screen = pygame.display.set_mode((640, 480))
         pygame.display.set_caption("Demonstration Collection")
-        self.clock = pygame.time.Clock()
 
     def process_events(self):
         for event in pygame.event.get():
@@ -52,15 +51,13 @@ class UI:
         self.screen.fill(color)
         pygame.display.flip()
 
-    def add_render_to_screen(self, img: np.ndarray):
-        assert img.shape[2] == 3, "Image should be in RGB format"
-        print(img.shape)
-        img = img * 255
+    # def add_render_to_screen(self, img: np.ndarray):
+    #     assert img.shape[2] == 3, "Image should be in RGB format"
+    #     img = img * 255
 
-        img = np.ones((100,100,3), dtype=np.uint8) * 255
-        img = pygame.surfarray.make_surface(img)
-        self.screen.blit(img, (50,50))
-        pygame.display.flip()
+    #     surf = pygame.surfarray.make_surface(img)
+    #     self.screen.blit(surf, (50,50))
+    #     pygame.display.update()
 
 class StateMachine:
     STATES = enum.Enum("states", "waiting start recording discard finish quit")
@@ -84,6 +81,12 @@ class StateMachine:
     
 
 def collect_demonstrations(agent_callable, env, dataset_recorder):
+    # create opencv screen for rendering
+    import cv2
+
+    window = cv2.namedWindow("Demonstration Collection Rendering", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Demonstration Collection Rendering", 640, 480)
+
     # start the UI
     state_machine = StateMachine()
     while state_machine.state is not state_machine.STATES.quit:
@@ -101,9 +104,13 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
             obs, reward, done, info = env.step(action)
             dataset_recorder.record(obs, action, reward, done, info)
             img = env.render()
+            # reshape to (640,480)
+            img = cv2.resize(img, (640, 480))
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            cv2.imshow("Demonstration Collection Rendering", img)
+            cv2.waitKey(1)
             # add img to the screen
             state_machine.update_state_from_keyboard()
-            state_machine.ui.add_render_to_screen(img)
 
 
         print("Episode is done, decide what to do next")
