@@ -126,7 +126,6 @@ class DMCWrapper(gym.Env):
         self._observation_space.seed(seed)
 
     def step(self, action):
-        assert self._action_space.contains(action)
         info = {}
 
         time_step = self._env.step(action)
@@ -157,9 +156,15 @@ class DMCWrapper(gym.Env):
 
 
 if __name__ == "__main__":
-    from dm_control import suite
+    # from dm_control import suite
 
-    env = suite.load(domain_name="cartpole", task_name="swingup")
+    # env = suite.load(domain_name="cartpole", task_name="swingup")
+
+    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
+    from dm_control.composer import Environment
+
+    task = PointMassReachTask(PointReachConfig())
+    env = Environment(task)
     print(env.action_spec())
     print(env.observation_spec())
     gym_env = DMCWrapper(env, flatten_observation_space=False)
@@ -173,3 +178,7 @@ if __name__ == "__main__":
     print(f"{obs=}")
     print(f"{reward=}")
     print(f"{info=}")
+
+    import matplotlib.pyplot as plt
+    plt.imshow(img)
+    plt.show()

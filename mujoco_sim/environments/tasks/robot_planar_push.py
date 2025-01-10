@@ -18,6 +18,7 @@ from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.cylinder import CylinderEEF
 from mujoco_sim.entities.props.google_block import GoogleBlockProp
 from mujoco_sim.entities.robots.robot import UR5e
+from mujoco_sim.entities.utils import write_xml
 from mujoco_sim.environments.tasks.base import RobotTask, TaskConfig
 from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 
@@ -55,7 +56,7 @@ class RobotPushConfig(TaskConfig):
     # coef for the additional reward term that encourages the robot
     # to touch the objects, only used with dense rewards.
     nearest_object_reward_coefficient: float = 0.1
-    target_radius = 0.02  # radius of the target site
+    target_radius = 0.05  # radius of the target site
     n_objects: int = 5  # number of objects to push
 
     cameraconfig: CameraConfig = None
@@ -81,6 +82,9 @@ class RobotPushTask(RobotTask):
         self.robot = UR5e()
         self.cylinderEEF = CylinderEEF()
         self.robot.attach_end_effector(self.cylinderEEF)
+
+        # get the xml of the robot
+        write_xml(self.robot.mjcf_model)
         self._arena.attach(self.robot, self._arena.robot_attachment_site)
 
         # creat target
@@ -260,7 +264,6 @@ def create_keyboard_policy(environment: composer.Environment):
             return np.array([-0.5, 0])
         if keyboard == "l":
             return np.array([0.5, 0])
-
     return policy
 
 
@@ -271,6 +274,8 @@ if __name__ == "__main__":
     task = RobotPushTask(
         RobotPushConfig(observation_type=RobotPushConfig.STATE_OBS, nearest_object_reward_coefficient=0.1, n_objects=2)
     )
+
+
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
 
@@ -285,4 +290,4 @@ if __name__ == "__main__":
     # import matplotlib.pyplot as plt
     # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
 
-    viewer.launch(environment, policy=create_keyboard_policy(environment))
+    viewer.launch(environment, policy=create_random_policy(environment))

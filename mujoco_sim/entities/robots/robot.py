@@ -62,8 +62,6 @@ class Robot(composer.Entity):
         ik_
         """
 
-        self.physics = None
-
         # Tool Center Frame translation wrt to the FLANGE (IK etc is based on this frame)
         self.tcp_in_flange_pose: POSE_TYPE = np.array([0, 0, 0, 0, 0, 0, 1.0])
         self.joint_trajectory: Optional[JointTrajectory] = None
@@ -84,24 +82,26 @@ class Robot(composer.Entity):
         self.base_element = self._model.find("body", self._BASE_BODY_NAME)
         self.flange: mjcf.Element = self._model.find("site", self._FLANGE_SITE_NAME)
 
-    def initialize_episode(self, physics, random_state):
-        self.physics = physics
-        return super().initialize_episode(physics, random_state)
 
     def attach_end_effector(self, end_effector: EEF):
 
         # expand keyframe of the robot arm to account for the new DoFs
         # code taken from https://github.com/google-deepmind/mujoco_menagerie/blob/main/FAQ.md#how-do-i-attach-a-hand-to-an-arm
-        physics = mjcf.Physics.from_mjcf_model(end_effector.mjcf_model)
+        # physics = mjcf.Physics.from_mjcf_model(end_effector.mjcf_model)
+        # robot_key_frame = self._model.find("key", "home")
+        # if robot_key_frame is not None:
+        #     end_effector_key_frame = end_effector.mjcf_model.find("key", "home")
+        #     if end_effector_key_frame is None:
+        #         robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, np.zeros(physics.model.nu )])
+        #         robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, np.zeros(physics.model.nq)])
+        #     else:
+        #         robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, end_effector_key_frame.ctrl])
+        #         robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, end_effector_key_frame.qpos])
+        
+        # remove keyframe from robot or end effector
         robot_key_frame = self._model.find("key", "home")
         if robot_key_frame is not None:
-            end_effector_key_frame = end_effector.mjcf_model.find("key", "home")
-            if end_effector_key_frame is None:
-                robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, np.zeros(physics.model.nu )])
-                robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, np.zeros(physics.model.nq)])
-            else:
-                robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, end_effector_key_frame.ctrl])
-                robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, end_effector_key_frame.qpos])
+            robot_key_frame.remove()
         
         self.attach(end_effector, self.flange)
 
