@@ -264,6 +264,7 @@ def create_keyboard_policy(environment: composer.Environment):
             return np.array([-0.5, 0])
         if keyboard == "l":
             return np.array([0.5, 0])
+
     return policy
 
 
@@ -274,7 +275,6 @@ if __name__ == "__main__":
     task = RobotPushTask(
         RobotPushConfig(observation_type=RobotPushConfig.STATE_OBS, nearest_object_reward_coefficient=0.1, n_objects=2)
     )
-
 
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()

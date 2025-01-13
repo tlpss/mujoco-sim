@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import Optional  # use class as type for class methods
 
 import numpy as np
-
 from scipy.spatial.transform import Rotation
 from spatialmath import SE3, UnitQuaternion
 from spatialmath.base import trnorm

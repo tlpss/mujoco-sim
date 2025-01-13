@@ -2,11 +2,12 @@ import abc
 
 import numpy as np
 from dm_control import mjcf
+from robot_descriptions import robotiq_2f85_mj_description
 
 from mujoco_sim.entities.eef.cylinder import EEF
-from mujoco_sim.entities.utils import get_assets_root_folder, write_xml
+from mujoco_sim.entities.utils import write_xml
 from mujoco_sim.type_aliases import VECTOR_TYPE
-from robot_descriptions import robotiq_2f85_mj_description
+
 
 class ParallelGripper(EEF):
     @property

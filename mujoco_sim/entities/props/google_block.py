@@ -93,5 +93,4 @@ if __name__ == "__main__":
 
     from dm_control import viewer
 
-    from mujoco import viewer
     viewer.launch(block.mjcf_model)

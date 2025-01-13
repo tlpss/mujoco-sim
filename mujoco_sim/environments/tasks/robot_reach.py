@@ -76,11 +76,9 @@ class RobotReachConfig(TaskConfig):
         self.action_type = self.action_type or RobotReachConfig.ABS_EEF_ACTION
         self.cameraconfig = self.cameraconfig or RobotReachConfig.FRONT_TILTED_CAMERA_CONFIG
 
-
         assert self.observation_type in RobotReachConfig.OBSERVATION_TYPES
         assert self.reward_type in RobotReachConfig.REWARD_TYPES
         assert self.action_type in RobotReachConfig.ACTION_TYPES
-
 
 
 class RobotReachTask(RobotTask):
@@ -111,7 +109,7 @@ class RobotReachTask(RobotTask):
         self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
 
         # for debugging camera views etc: add workspace to scene
-        #self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
+        # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
         camera_config = self.config.cameraconfig
@@ -145,13 +143,12 @@ class RobotReachTask(RobotTask):
         super().initialize_episode(physics, random_state)
         robot_initial_pose = self.robot_spawn_space.sample()
         robot_initial_pose = np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION])
-        # ŧarget position 
+        # ŧarget position
         self.robot.set_tcp_pose(physics, robot_initial_pose)
         target_position = self.target_spawn_space.sample()
         physics.bind(self.target).pos = target_position
         print(f"target position: {target_position}")
         print(self.goal_position_observable(physics))
-
 
     @property
     def root_entity(self):
@@ -167,7 +164,7 @@ class RobotReachTask(RobotTask):
         if action is None:
             return
         assert action.shape == (3,)
-  
+
         self.robot.servoL(physics, np.concatenate([action, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def _robot_distance_to_target(self, physics):
@@ -188,10 +185,23 @@ class RobotReachTask(RobotTask):
         # normalized action space, rescaled in before_step
         if self.config.action_type == RobotReachConfig.ABS_EEF_ACTION:
             return specs.BoundedArray(
-                shape=(3,), dtype=np.float64, minimum=[self.robot_workspace.x_range[0], self.robot_workspace.y_range[0], self.robot_workspace.z_range[0]], maximum=[self.robot_workspace.x_range[1], self.robot_workspace.y_range[1], self.robot_workspace.z_range[1]])
+                shape=(3,),
+                dtype=np.float64,
+                minimum=[
+                    self.robot_workspace.x_range[0],
+                    self.robot_workspace.y_range[0],
+                    self.robot_workspace.z_range[0],
+                ],
+                maximum=[
+                    self.robot_workspace.x_range[1],
+                    self.robot_workspace.y_range[1],
+                    self.robot_workspace.z_range[1],
+                ],
+            )
 
         if self.config.action_type == RobotReachConfig.ABS_JOIN_ACTION:
             return specs.BoundedArray()
+
     def is_task_accomplished(self, physics) -> bool:
         return self._robot_distance_to_target(physics) < self.config.goal_distance_threshold
 
@@ -207,7 +217,8 @@ def create_random_policy(environment: composer.Environment):
 
     return random_policy
 
-def create_demonstration_policy(environment: composer.Environment, noise_level = 0.0):
+
+def create_demonstration_policy(environment: composer.Environment, noise_level=0.0):
     def demonstration_policy(time_step: composer.TimeStep):
 
         assert isinstance(environment.task, RobotReachTask)
@@ -216,7 +227,7 @@ def create_demonstration_policy(environment: composer.Environment, noise_level =
         # get the current robot pose
         robot_pose = environment.task.robot.get_tcp_pose(physics)
 
-        # get the current target pose 
+        # get the current target pose
         target_pose = physics.bind(environment.task.target).xpos
 
         print("robot pose", robot_pose)
@@ -229,13 +240,11 @@ def create_demonstration_policy(environment: composer.Environment, noise_level =
         difference += np.random.normal(0, noise_level, size=3)
 
         # move at most 0.5m/s
-        difference = difference * 0.5 /np.max(np.abs(difference)) * environment.control_timestep()
+        difference = difference * 0.5 / np.max(np.abs(difference)) * environment.control_timestep()
         action = robot_pose[:3] + difference
         return action
 
     return demonstration_policy
-
-
 
 
 if __name__ == "__main__":
@@ -245,10 +254,8 @@ if __name__ == "__main__":
     task = RobotReachTask(RobotReachConfig(observation_type=RobotReachConfig.STATE_OBS))
 
     # dump task xml
-    from dm_control import mjcf
-    import matplotlib.pyplot as plt
 
-    #mjcf.export_with_assets(task._arena.mjcf_model, ".")
+    # mjcf.export_with_assets(task._arena.mjcf_model, ".")
 
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
