@@ -58,14 +58,14 @@ class LeRobotDatasetRecorder(DatasetRecorder):
         },
     }
 
-    def __init__(self, env: gymnasium.Env, root_dataset_dir: Path, dataset_name: str, fps: int):
+    def __init__(self, env: gymnasium.Env, root_dataset_dir: Path, dataset_name: str, fps: int, use_videos=True):
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
         self.root_dataset_dir = root_dataset_dir
         self.dataset_name = dataset_name
         self.fps = fps
 
-        self.n_recorded_episodes = 0
+        self._n_recorded_episodes = 0
         self.key_mapping_dict = {}
 
         features = self.DEFAULT_FEATURES.copy()
@@ -79,10 +79,19 @@ class LeRobotDatasetRecorder(DatasetRecorder):
         num_cameras = len(self.image_keys)
         for key in self.image_keys:
             shape = env.observation_space.spaces[key].shape
-            if not key.startswith("observation.image"):
-                lerobot_key = f"observation.image.{key}"
+
+            if not key.startswith("observation.images"):
+                lerobot_key = f"observation.images.{key}"
                 self.key_mapping_dict[key] = lerobot_key
+
+            lerobot_key = self.key_mapping_dict.get(key, key)
+            if "/" in lerobot_key:
+                self.key_mapping_dict[key] = lerobot_key.replace("/", "_")
+            lerobot_key = self.key_mapping_dict[key]
+            if use_videos:
                 features[lerobot_key] = {"dtype": "video", "names": ["channel", "height", "width"], "shape": shape}
+            else:
+                features[lerobot_key] = {"dtype": "image", "shape": shape, "names": None}
 
         # state observations
         self.state_keys = [key for key in env.observation_space.spaces.keys() if key not in self.image_keys]
@@ -90,6 +99,12 @@ class LeRobotDatasetRecorder(DatasetRecorder):
             shape = env.observation_space.spaces[key].shape
             features[key] = {"dtype": "float32", "shape": shape, "names": None}
 
+        # add single 'state' observation that concatenates all state observations
+        features["observation.state"] = {
+            "dtype": "float32",
+            "shape": (sum([env.observation_space.spaces[key].shape[0] for key in self.state_keys]),),
+            "names": None,
+        }
         # add action to features
         features["action"] = {"dtype": "float32", "shape": env.action_space.shape, "names": None}
 
@@ -100,7 +115,7 @@ class LeRobotDatasetRecorder(DatasetRecorder):
             fps=self.fps,
             root=self.root_dataset_dir,
             features=features,
-            use_videos=True,
+            use_videos=use_videos,
             image_writer_processes=0,
             image_writer_threads=4 * num_cameras,
         )
@@ -125,15 +140,23 @@ class LeRobotDatasetRecorder(DatasetRecorder):
         for key in self.state_keys:
             frame[key] = torch.from_numpy(obs[key])
 
+        # concatenate all 'state' observations into a single tensor
+        state = torch.cat([frame[key].flatten() for key in self.state_keys])
+        frame["observation.state"] = state
+
         self.lerobot_dataset.add_frame(frame)
 
     def save_episode(self):
         self.lerobot_dataset.save_episode(task="")
-        self.n_recorded_episodes += 1
+        self._n_recorded_episodes += 1
 
     def finish_recording(self):
         # computing statistics
         self.lerobot_dataset.consolidate()
+
+    @property
+    def n_recorded_episodes(self):
+        return self._n_recorded_episodes
 
 
 class UI:
@@ -157,8 +180,23 @@ class UI:
                     return "quit"
         return None
 
-    def update_display_color(self, color):
-        self.screen.fill(color)
+    def update_UI(self, state, n_demos_collected, info):
+        # make screen all black
+        self.screen.fill((0, 0, 0))
+
+        # add text to the screen
+        font = pygame.font.Font(None, 36)
+        text = font.render(f"State: {state}", True, (255, 255, 255))
+        self.screen.blit(text, (50, 50))
+
+        # add # collected demos
+        text = font.render(f"Collected Demos: {n_demos_collected}", True, (255, 255, 255))
+        self.screen.blit(text, (50, 100))
+
+        # add info
+        text = font.render(f"Info: {info}", True, (255, 255, 255))
+        self.screen.blit(text, (50, 150))
+
         pygame.display.flip()
 
     # def add_render_to_screen(self, img: np.ndarray):
@@ -171,7 +209,7 @@ class UI:
 
 
 class StateMachine:
-    STATES = enum.Enum("states", "waiting start recording discard finish quit")
+    STATES = enum.Enum("states", "waiting recording discard finish quit")
 
     def __init__(self):
         self.state = self.STATES.waiting
@@ -180,19 +218,17 @@ class StateMachine:
     def update_state_from_keyboard(self):
         event = self.ui.process_events()
         if event:
-            self.state = self.STATES[event]
-        # print(f"State: {self.state}")
+            if event == self.STATES.discard.name or event == self.STATES.finish.name:
+                if self.state == self.STATES.recording:
+                    self.state = self.STATES[event]
+            if event == self.STATES.recording.name:
+                if self.state == self.STATES.waiting:
+                    self.state = self.STATES[event]
+                else:
+                    print("Cannot start recording from this state")
 
-        if self.state is self.STATES.recording:
-            self.ui.update_display_color((0, 0, 255))
-        else:
-            self.ui.update_display_color((0, 0, 0))
-
-        # print state to UI
-        font = pygame.font.Font(None, 36)
-        text = font.render(f"State: {self.state.name}", True, (255, 255, 255))
-        self.ui.screen.blit(text, (0, 0))
-        pygame.display.update()
+            if event == self.STATES.quit.name:
+                self.state = self.STATES[event]
 
 
 def collect_demonstrations(agent_callable, env, dataset_recorder):
@@ -205,8 +241,14 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
     state_machine = StateMachine()
     while state_machine.state is not state_machine.STATES.quit:
         while state_machine.state is state_machine.STATES.waiting:
-            time.sleep(1)
+            time.sleep(0.1)
             state_machine.update_state_from_keyboard()
+            state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "")
+
+            if dataset_recorder.n_recorded_episodes > 0:
+                state_machine.state = state_machine.STATES.recording
+            if dataset_recorder.n_recorded_episodes == 50:
+                state_machine.state = state_machine.STATES.quit
 
         if state_machine.state is state_machine.STATES.quit:
             break
@@ -227,10 +269,15 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
             # cv2.waitKey(1)
             # add img to the screen
             state_machine.update_state_from_keyboard()
+            state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "")
 
         print("Episode is done, decide what to do next")
         while done and state_machine.state is state_machine.STATES.recording:
             state_machine.update_state_from_keyboard()
+            state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "save episode?")
+
+            # hardcode
+            state_machine.state = state_machine.STATES.finish
 
         if state_machine.state is state_machine.STATES.discard:
             print("not saving the episode")
@@ -246,19 +293,11 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
 
 if __name__ == "__main__":
     import pygame
-    from dm_control.composer import Environment as DMEnvironment
 
-    from mujoco_sim.environments.dmc2gym import DMCWrapper
-    from mujoco_sim.environments.tasks.point_reach import (
-        VISUAL_OBS,
-        PointMassReachTask,
-        PointReachConfig,
-        create_demonstation_policy,
-    )
+    from mujoco_sim.environments.tasks.point_reach import create_demonstation_policy
 
-    task = PointMassReachTask(PointReachConfig(observation_type=VISUAL_OBS))
-    dmc_env = DMEnvironment(task, strip_singleton_obs_buffer_dim=True)
-    env = DMCWrapper(dmc_env)
+    env = gymnasium.make("mujoco_sim/point_mass_reach-v0")
+    dmc_env = env.dmc_env
 
     action_callable = create_demonstation_policy(dmc_env)
     import datetime
@@ -266,6 +305,10 @@ if __name__ == "__main__":
     id = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 
     dataset_recorder = LeRobotDatasetRecorder(
-        env, Path(__file__).parent / "dataset" / f"{id}", "point_reach", round(1 / env._env.control_timestep())
+        env,
+        Path(__file__).parent / "dataset" / f"{id}",
+        "point_reach",
+        round(1 / env.dmc_env.control_timestep()),
+        use_videos=False,
     )
     collect_demonstrations(action_callable, env, dataset_recorder)

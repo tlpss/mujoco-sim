@@ -1,5 +1,3 @@
-import dataclasses
-
 import numpy as np
 from dm_control import composer
 from dm_control.composer.observation import observable
@@ -9,7 +7,6 @@ from mujoco_sim.entities.arenas import WalledPointmassArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.pointmass import PointMass2D
 from mujoco_sim.entities.utils import build_mocap
-from mujoco_sim.environments.tasks.base import TaskConfig
 
 SPARSE_REWARD = "sparse_reward"
 DENSE_POTENTIAL_REWARD = "dense_potential_reward"
@@ -24,25 +21,11 @@ OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
 
 TOP_DOWN_CAMERA_CONFIG = CameraConfig(np.array([0.0, 0.0, 2.4]), np.array([1.0, 0.0, 0.0, 0.0]), 30)
 
-
-@dataclasses.dataclass
-class PointReachConfig(TaskConfig):
-    reward_type: str = DENSE_NEG_DISTANCE_REWARD
-    observation_type: str = STATE_OBS
-    limit_mocap_workspace: bool = True
-    """ limit the mocap (x,y) pose to the walled_arena to, if this is false the mocap is allowed to move outside of the
-    arena. The actual ball geom will be stopped by the wall ofc."""
-    max_step_size: float = 0.05
-    physics_timestep: float = 0.02  # MJC default =0.002
-    control_timestep: float = 0.1  # 30 physics steps
-    max_control_steps_per_episode = 25
-
-    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
-    image_resolution: int = 64
-
-    def __post_init__(self):
-        assert self.observation_type in OBSERVATION_TYPES
-        assert self.reward_type in REWARD_TYPES
+PHYSICS_TIMESTEP = 0.02  # MJC default =0.002
+CONTROL_TIMESTEP = 0.1
+MAX_CONTROL_STEPS_PER_EPISODE = 50
+GOAL_DISTANCE_THRESHOLD = 0.02
+MAX_STEP_SIZE = 0.05
 
 
 class PointMassReachTask(composer.Task):
@@ -68,8 +51,18 @@ class PointMassReachTask(composer.Task):
     The task will later be wrapped by an 'Environment' to create the RL env
     """
 
-    def __init__(self, config: PointReachConfig = None) -> None:
-        self.config = PointReachConfig() if config is None else config
+    def __init__(
+        self,
+        reward_type: str = DENSE_BIASED_NEG_DISTANCE_REWARD,
+        observation_type: str = VISUAL_OBS,
+        image_resolution: int = 64,
+    ) -> None:
+        super().__init__()
+        assert reward_type in REWARD_TYPES
+        assert observation_type in OBSERVATION_TYPES
+        self.reward_type = reward_type
+        self.observation_type = observation_type
+        self.image_resolution = image_resolution
 
         # arena is the convention name for the root of the Entity tree
         self._arena = WalledPointmassArena()
@@ -92,13 +85,13 @@ class PointMassReachTask(composer.Task):
         )
         # add Camera to scene
         top_down_config = TOP_DOWN_CAMERA_CONFIG
-        top_down_config.image_width = top_down_config.image_height = self.config.image_resolution
+        top_down_config.image_width = top_down_config.image_height = self.image_resolution
         self.camera = Camera(top_down_config)
         self._arena.attach(self.camera)
 
         # set timesteps
-        self.physics_timestep = self.config.physics_timestep
-        self.control_timestep = self.config.control_timestep
+        self.physics_timestep = PHYSICS_TIMESTEP
+        self.control_timestep = CONTROL_TIMESTEP
 
         # create additional observables / Sensors
         self.goal_position_observable = observable.Generic(self._goal_position)
@@ -112,11 +105,12 @@ class PointMassReachTask(composer.Task):
         self.previous_distance_to_target = 1.0
 
     def _configure_observables(self):
-        if self.config.observation_type == STATE_OBS:
+        if self.observation_type == STATE_OBS:
             self.pointmass.observables.position.enabled = True
             self.goal_position_observable.enabled = True
-        elif self.config.observation_type == VISUAL_OBS:
+        elif self.observation_type == VISUAL_OBS:
             self.camera.observables.rgb_image.enabled = True
+            self.pointmass.observables.position.enabled = True
         else:
             raise NotImplementedError
 
@@ -171,32 +165,32 @@ class PointMassReachTask(composer.Task):
     def get_reward(self, physics):
         del physics  # unused
 
-        if self.config.reward_type == SPARSE_REWARD:
+        if self.reward_type == SPARSE_REWARD:
             return self.distance_to_target < self.config.goal_distance_threshold
-        elif self.config.reward_type == DENSE_NEG_DISTANCE_REWARD:
+        elif self.reward_type == DENSE_NEG_DISTANCE_REWARD:
             return -self.distance_to_target
-        elif self.config.reward_type == DENSE_BIASED_NEG_DISTANCE_REWARD:
+        elif self.reward_type == DENSE_BIASED_NEG_DISTANCE_REWARD:
             # TODO: make this smarter by doing 1-tanh(b*distance) which is always positive.
             # and configure it in such a way that the total reward / step is <=1 with 1 -> succesful termination?
             return -self.distance_to_target + 0.5  # attempt to make random policy reward positive
-        elif self.config.reward_type == DENSE_POTENTIAL_REWARD:
+        elif self.reward_type == DENSE_POTENTIAL_REWARD:
             return self.previous_distance_to_target - self.distance_to_target
 
         else:
             raise ValueError("reward type not known?")
 
     def _max_time_exceeded(self, physics):
-        return physics.data.time > self.config.max_control_steps_per_episode * self.config.control_timestep
+        return physics.data.time > MAX_CONTROL_STEPS_PER_EPISODE * CONTROL_TIMESTEP
 
     def should_terminate_episode(self, physics):
 
         time_limit_reached = self._max_time_exceeded(physics)
-        goal_reached = self.distance_to_target < self.config.goal_distance_threshold
+        goal_reached = self.distance_to_target < GOAL_DISTANCE_THRESHOLD
         done = time_limit_reached or goal_reached
         return done
 
     def get_discount(self, physics):
-        if self.distance_to_target < self.config.goal_distance_threshold:
+        if self.distance_to_target < GOAL_DISTANCE_THRESHOLD:
             return 0.0  # true terminal state
         return 1.0
 
@@ -204,7 +198,7 @@ class PointMassReachTask(composer.Task):
         del physics
         # if the action space matches the 'actuation space', dm_control will handle this by just broadcasting all the actuators
         # TODO: take super class action space and extend
-        bound = np.array([self.config.max_step_size, self.config.max_step_size])
+        bound = np.array([MAX_STEP_SIZE, MAX_STEP_SIZE])
         return specs.BoundedArray((2,), np.float32, -bound, bound)
 
     def _goal_position(self, physics) -> np.ndarray:
@@ -235,7 +229,7 @@ def create_demonstation_policy(environment: composer.Environment, noise: float =
         action = target_position - current_position
         if noise > 0:
             action *= 1 + np.random.normal(0, noise, action.shape)
-        action *= 1 / np.max(np.abs(action)) * environment.task.config.max_step_size
+        action *= 1 / np.max(np.abs(action)) * MAX_STEP_SIZE
 
         return action
 
@@ -246,7 +240,7 @@ if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = PointMassReachTask(PointReachConfig(observation_type=STATE_OBS))
+    task = PointMassReachTask(observation_type=STATE_OBS)
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
     print(environment.action_spec())

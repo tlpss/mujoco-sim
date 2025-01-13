@@ -114,6 +114,10 @@ class DMCWrapper(gymnasium.Env):
         return obs
 
     @property
+    def dmc_env(self):
+        return self._env
+
+    @property
     def observation_space(self):
         return self._observation_space
 
