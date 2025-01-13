@@ -1,45 +1,40 @@
 from __future__ import annotations
 
-import warnings
 from collections import deque
 from typing import Optional
 
 import numpy as np
 from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
-import robot_descriptions.loaders
-import robot_descriptions.loaders.mujoco
-import robot_descriptions.ur5e_mj_description
 
 from mujoco_sim.entities.eef.cylinder import EEF
 from mujoco_sim.entities.robots.joint_trajectory import JointTrajectory, Waypoint
-from mujoco_sim.entities.utils import get_assets_root_folder
+from mujoco_sim.entities.robots.SE3Container import SE3Container
 from mujoco_sim.type_aliases import JOINT_CONFIGURATION_TYPE, POSE_TYPE
 
-from mujoco_sim.entities.robots.SE3Container import SE3Container
-import robot_descriptions
 
 class IKSolver:
     def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
         raise NotImplementedError("IK solver not implemented")
 
 
-
 class AnalyticURIKsolver(IKSolver):
     def __init__(self, robot_type: str = "ur5e"):
         try:
-            import ur_analytic_ik as ur_ik
+            pass
         except ImportError:
             raise ImportError(
-                "ur_analytic_ik is not installed. Please install it from https://github.com/Victorlouisdg/ur-analytic-ik")
+                "ur_analytic_ik is not installed. Please install it from https://github.com/Victorlouisdg/ur-analytic-ik"
+            )
         self.robot_type = robot_type
 
     def solve_ik(self, pose: POSE_TYPE, q_guess: JOINT_CONFIGURATION_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
         if self.robot_type == "ur5e":
             from ur_analytic_ik import ur5e
+
             # convert pose to homogeneous matrix
             pose = SE3Container.from_quaternion_and_translation(pose[3:], pose[:3]).homogeneous_matrix
-            q = ur5e.inverse_kinematics_closest(pose,*q_guess)
+            q = ur5e.inverse_kinematics_closest(pose, *q_guess)
             return q
 
 
@@ -82,7 +77,6 @@ class Robot(composer.Entity):
         self.base_element = self._model.find("body", self._BASE_BODY_NAME)
         self.flange: mjcf.Element = self._model.find("site", self._FLANGE_SITE_NAME)
 
-
     def attach_end_effector(self, end_effector: EEF):
 
         # expand keyframe of the robot arm to account for the new DoFs
@@ -97,18 +91,16 @@ class Robot(composer.Entity):
         #     else:
         #         robot_key_frame.ctrl = np.concatenate([robot_key_frame.ctrl, end_effector_key_frame.ctrl])
         #         robot_key_frame.qpos = np.concatenate([robot_key_frame.qpos, end_effector_key_frame.qpos])
-        
+
         # remove keyframe from robot or end effector
         robot_key_frame = self._model.find("key", "home")
         if robot_key_frame is not None:
             robot_key_frame.remove()
-        
+
         self.attach(end_effector, self.flange)
 
         # update the TCP offset (bookkeeping)
         self.tcp_in_flange_pose[:3] = end_effector.tcp_offset
-
-
 
     @property
     def mjcf_model(self):
@@ -131,9 +123,7 @@ class Robot(composer.Entity):
         ).homogeneous_matrix
         tcp_in_base_matrix = flange_in_base_matrix @ tcp_in_flange_matrix
         tcp_in_base_se3 = SE3Container.from_homogeneous_matrix(tcp_in_base_matrix)
-        tcp_in_base_pose = np.concatenate(
-            [tcp_in_base_se3.translation, tcp_in_base_se3.orientation_as_quaternion]
-        )
+        tcp_in_base_pose = np.concatenate([tcp_in_base_se3.translation, tcp_in_base_se3.orientation_as_quaternion])
         return tcp_in_base_pose
 
     def _get_flange_pose_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> POSE_TYPE:
@@ -152,7 +142,7 @@ class Robot(composer.Entity):
         return flange_in_base_pose
 
     def get_tcp_pose(self, physics=None) -> POSE_TYPE:
-        # TODO: make sure that pose is 
+        # TODO: make sure that pose is
         # expressed in robot base frame
         # now it is in the world frame.
 
@@ -192,11 +182,10 @@ class Robot(composer.Entity):
 
     def moveL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
         raise NotImplementedError("moveL not implemented")
-    
+
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
         if speed > self.max_joint_speed:
             print(f"required joint speed {speed} is too high for this robot.")
-            
 
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
         if target_joint_positions is None:
@@ -204,8 +193,6 @@ class Robot(composer.Entity):
             print("IK failed")
             return
         self.moveJ(physics, target_joint_positions, speed)
-
-        
 
     def moveJ(self, physics: mjcf.Physics, target_joint_positions: np.ndarray, speed: float):
         current_joint_positions = self.get_joint_positions(physics)
@@ -253,7 +240,6 @@ class Robot(composer.Entity):
 
         if speed > self.max_joint_speed:
             print(f"required joint speed {speed} is too high for this robot.")
-        
 
         start_time = physics.time()
         trajectory = JointTrajectory(
@@ -307,19 +293,22 @@ class UR5e(Robot):
     max_joint_speed = 1.0  # rad/s - https://store.clearpathrobotics.com/products/ur3e
 
     def __init__(self):
-        from robot_descriptions import ur5e_mj_description 
+        from robot_descriptions import ur5e_mj_description
+
         self._MODEL_XML_PATH = ur5e_mj_description.MJCF_PATH
         solver = AnalyticURIKsolver("ur5e")
         super().__init__(solver)
 
-   
     def _build(self):
-        ret =  super()._build()
+        ret = super()._build()
         # get the robot model and change the base orientation
-        self._model.find("body","base").quat = [0,0,0,-1]
+        self._model.find("body", "base").quat = [0, 0, 0, -1]
         return ret
-    
+
+
 def test_ur5e_position_controllers_servoL():
+    import matplotlib.pyplot as plt
+
     frequency = 20
 
     robot = UR5e()
@@ -365,6 +354,7 @@ def test_ur5e_position_controllers_servoL():
 
     plt.show()
 
+
 if __name__ == "__main__":
 
     robot = UR5e()
@@ -376,8 +366,8 @@ if __name__ == "__main__":
     # force robot to move to a specific pose
     joints = np.array([0.0, -0.5, 0.5, -0.5, -0.5, -0.5]) * np.pi
     robot.set_joint_positions(physics, joints)
-  
-    target_pose  = np.array([0.1, 0.3, 0.5, 1,0,0,0])
+
+    target_pose = np.array([0.1, 0.3, 0.5, 1, 0, 0, 0])
 
     print(f"initial pose: {robot.get_tcp_pose(physics)}")
     for _ in range(20):
@@ -385,7 +375,6 @@ if __name__ == "__main__":
         for _ in range(100):
             robot.before_substep(physics, None)
             physics.step()
-    
+
     print(f"final pose: {robot.get_tcp_pose(physics)}")
     print(f"target pose: {target_pose}")
-

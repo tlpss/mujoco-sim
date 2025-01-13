@@ -5,15 +5,15 @@ adapted from https://github.com/denisyarats/dmc2gym/blob/master/dmc2gym/wrappers
 
 from typing import List
 
-import gym
+import gymnasium
 import numpy as np
 from dm_control.composer import Environment
 from dm_env import specs
-from gym import spaces
+from gymnasium import spaces
 
 
 def _convert_specs_to_flattened_box(spec: List[specs.Array], dtype: np.dtype) -> spaces.Box:
-    """Converts a list of n-dimensional specs to a gym.spaces.Box
+    """Converts a list of n-dimensional specs to a gymnasium.spaces.Box
     by flattening each spec and then concatenating the 1D-sizes.
 
     e.g. (2,),(2,2) spec becomes (6,) box
@@ -72,12 +72,12 @@ def _flatten_obs(obs: dict) -> np.ndarray:
     return np.concatenate(obs_pieces, axis=0)
 
 
-class DMCWrapper(gym.Env):
+class DMCWrapper(gymnasium.Env):
     def __init__(
         self,
         env: Environment,
         seed: int = 2022,
-        flatten_observation_space: bool = True,
+        flatten_observation_space: bool = False,
         render_camera_id=-1,  # the free camera that is always available.
         render_dims: tuple[int, int] = (96, 96),
     ):
@@ -160,11 +160,12 @@ if __name__ == "__main__":
 
     # env = suite.load(domain_name="cartpole", task_name="swingup")
 
-    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
     from dm_control.composer import Environment
 
+    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
+
     task = PointMassReachTask(PointReachConfig())
-    env = Environment(task)
+    env = Environment(task, strip_singleton_obs_buffer_dim=True)
     print(env.action_spec())
     print(env.observation_spec())
     gym_env = DMCWrapper(env, flatten_observation_space=False)
@@ -180,5 +181,6 @@ if __name__ == "__main__":
     print(f"{info=}")
 
     import matplotlib.pyplot as plt
+
     plt.imshow(img)
     plt.show()

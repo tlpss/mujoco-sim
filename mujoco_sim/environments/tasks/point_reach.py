@@ -215,7 +215,6 @@ class PointMassReachTask(composer.Task):
         return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}
 
 
-
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
     environment.observation_spec()
@@ -228,23 +227,26 @@ def create_random_policy(environment: composer.Environment):
 
 def create_demonstation_policy(environment: composer.Environment, noise: float = 0.0):
     assert isinstance(environment.task, PointMassReachTask)
+
     def policy(time_step):
         current_position = environment.task.pointmass.get_position(environment.physics)
         target_position = environment.task._goal_position(environment.physics)
 
         action = target_position - current_position
         if noise > 0:
-            action *= (1+np.random.normal(0, noise, action.shape))
-        action *= 1/np.max(np.abs(action))* environment.task.config.max_step_size
+            action *= 1 + np.random.normal(0, noise, action.shape)
+        action *= 1 / np.max(np.abs(action)) * environment.task.config.max_step_size
 
         return action
+
     return policy
+
 
 if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = PointMassReachTask(PointReachConfig(observation_type=VISUAL_OBS))
+    task = PointMassReachTask(PointReachConfig(observation_type=STATE_OBS))
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
     print(environment.action_spec())
