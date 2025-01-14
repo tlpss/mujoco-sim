@@ -1,6 +1,6 @@
-""" wrapper for the dm_env to create a gym Interface
+""" Adapter for the dm_env to create a gymnasium Env Interface
 
-adapted from https://github.com/denisyarats/dmc2gym/blob/master/dmc2gym/wrappers.py
+based on  https://github.com/denisyarats/dmc2gym/blob/master/dmc2gym/wrappers.py
 """
 
 from typing import List
@@ -72,11 +72,10 @@ def _flatten_obs(obs: dict) -> np.ndarray:
     return np.concatenate(obs_pieces, axis=0)
 
 
-class DMCWrapper(gymnasium.Env):
+class DMCEnvironmentAdapter(gymnasium.Env):
     def __init__(
         self,
         env: Environment,
-        seed: int = 2022,
         flatten_observation_space: bool = False,
         render_camera_id=-1,  # the free camera that is always available.
         render_dims: tuple[int, int] = (96, 96),
@@ -86,6 +85,7 @@ class DMCWrapper(gymnasium.Env):
         self.render_dims = render_dims
         self._env = env
         self._action_space = _convert_specs_to_flattened_box([self._env.action_spec()], np.float32)
+        
         # create observation space
         if flatten_observation_space:
             self._observation_space = _convert_specs_to_flattened_box(
@@ -98,11 +98,6 @@ class DMCWrapper(gymnasium.Env):
             )
             # idea is to maintain the dict structure here and simply turn the dict of specs into a dict of boxes
             # this way dimensionality is not lost (e.g. F/T sensor and image can exist w/o having to flatten the image)
-
-        self.current_state = None
-
-        # set seed
-        self.seed(seed)
 
     def __getattr__(self, name):
         return getattr(self._env, name)
@@ -138,16 +133,23 @@ class DMCWrapper(gymnasium.Env):
         time_step = self._env.step(action)
         reward = time_step.reward
         obs = self._get_obs(time_step)
-
         # truncated = finite-horizon formulation timeout of inifite task
-        # env signals stop but agent should bootstrap from next_obs
+        # env signals stop but agent should bootstrap from next_obs so discount > 0
         # as this is not a true terminal state
         # cf https://arxiv.org/pdf/1712.00378.pdf
-        truncated = time_step.discount > 0.0 and time_step.last()
+        # for true terminal states, discount is 0.0. 
+        truncated = time_step.last() and time_step.discount > 0.0
         terminated = time_step.last() and time_step.discount == 0.0
 
-        done = truncated or terminated
+
+         # check for succcess and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
+        # check if method "is_goal_reached" exists in the env
+        if hasattr(self._env.task, "is_goal_reached"):
+            info["is_success"] = self._env.task.is_goal_reached(self._env.physics)
+        
+        # log discount as it is not passed explicitly in gym env
         info["discount"] = time_step.discount
+
         return obs, reward, terminated, truncated, info
 
     def reset(self,seed:int = None):
@@ -171,13 +173,13 @@ if __name__ == "__main__":
 
     from dm_control.composer import Environment
 
-    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask
+    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, create_demonstation_policy
 
     task = PointMassReachTask()
     env = Environment(task, strip_singleton_obs_buffer_dim=True)
     print(env.action_spec())
     print(env.observation_spec())
-    gym_env = DMCWrapper(env, flatten_observation_space=False)
+    gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
     obs,info = gym_env.reset()
@@ -194,3 +196,12 @@ if __name__ == "__main__":
 
     plt.imshow(img)
     plt.show()
+
+    policy = create_demonstation_policy(env)
+    done = False
+    obs = gym_env.reset()
+    while not done:
+        obs, reward, term, trunc, info = gym_env.step(policy(obs))
+        done = term or trunc
+    print(info)
+    print(gym_env.dmc_env.task.is_goal_reached(gym_env.dmc_env.physics))

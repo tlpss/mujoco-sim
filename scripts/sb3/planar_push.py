@@ -11,8 +11,8 @@ from stable_baselines3.sac.sac import SAC
 from wandb.integration.sb3 import WandbCallback
 
 from mujoco_sim import _LOGGING_DIR
-from mujoco_sim.environments.dmc2gym import DMCWrapper
-from mujoco_sim.environments.tasks.robot_reach import RobotReachConfig, RobotReachTask
+from mujoco_sim.environments.dmc2gym import DMCEnvironmentAdapter
+from mujoco_sim.environments.tasks.robot_planar_push import RobotPushConfig, RobotPushTask
 from mujoco_sim.gym_video_wrapper import VideoRecorderWrapper
 
 
@@ -24,17 +24,19 @@ class HyperConfig:
     timesteps: int = 200000
     seed: int = 2022
     entropy_coefficient: int = 0.005
-    batch_size: int = 32
+    batch_size: int = 128
     gradient_steps: int = 1
     num_envs: int = 1
 
 
 if __name__ == "__main__":
 
-    log_dir = _LOGGING_DIR / "robot-reach"
+    log_dir = _LOGGING_DIR / "pointmass-reach"
     config = HyperConfig()
-    task_config = RobotReachConfig(
-        observation_type=RobotReachConfig.VISUAL_OBS,
+    task_config = RobotPushConfig(
+        observation_type="visual_observations",
+        n_objects=1,
+        nearest_object_reward_coefficient=0.2,
         max_control_steps_per_episode=30,
     )
 
@@ -42,7 +44,7 @@ if __name__ == "__main__":
     config_dict.update(dataclasses.asdict(task_config))
     print(f"{config_dict=}")
     run = wandb.init(
-        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="online", tags=["planar_reach"]
+        project="mujoco-sim", config=config_dict, sync_tensorboard=True, mode="online", tags=["planar_push"]
     )
     wandb.config.update(config_dict)  # strange but wandb did not set dict in init..?
     config = wandb.config  # get possibly updated config
@@ -67,8 +69,8 @@ if __name__ == "__main__":
 
         def _create():
             print("creating env")
-            dmc_env = Environment(RobotReachTask(task_config), strip_singleton_obs_buffer_dim=True)
-            env = DMCWrapper(dmc_env, flatten_observation_space=False, render_camera_id=0)
+            dmc_env = Environment(RobotPushTask(task_config), strip_singleton_obs_buffer_dim=True)
+            env = DMCEnvironmentAdapter(dmc_env, flatten_observation_space=False, render_camera_id=0)
             print(rank)
             if rank == 0:
                 print("wrapping rank 0 env")

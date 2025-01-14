@@ -9,3 +9,4 @@ logging/
 **.pyc
 
 mjcf/
+outputs/

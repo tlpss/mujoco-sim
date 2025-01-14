@@ -180,19 +180,21 @@ class PointMassReachTask(composer.Task):
             raise ValueError("reward type not known?")
 
     def _max_time_exceeded(self, physics):
-        return physics.data.time > MAX_CONTROL_STEPS_PER_EPISODE * CONTROL_TIMESTEP
+        return physics.data.time >= MAX_CONTROL_STEPS_PER_EPISODE * CONTROL_TIMESTEP
+
 
     def should_terminate_episode(self, physics):
+        # time limit violations (truncations) for finite formulations if infinite horizon task 
+        # or terminal states (goal reached or invalid states, e.g. collisions)
+        return self.is_goal_reached(physics) or self._max_time_exceeded(physics)
 
-        time_limit_reached = self._max_time_exceeded(physics)
-        goal_reached = self.distance_to_target < GOAL_DISTANCE_THRESHOLD
-        done = time_limit_reached or goal_reached
-        return done
-
+    def is_goal_reached(self, physics):
+        return self.distance_to_target < GOAL_DISTANCE_THRESHOLD
+    
     def get_discount(self, physics):
-        if self.distance_to_target < GOAL_DISTANCE_THRESHOLD:
-            return 0.0  # true terminal state
-        return 1.0
+        if self.is_goal_reached(physics):
+            return 0.0 
+        return 1.0  
 
     def action_spec(self, physics):
         del physics
@@ -252,4 +254,4 @@ if __name__ == "__main__":
     # import matplotlib.pyplot as plt
     # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
 
-    viewer.launch(environment, policy=create_demonstation_policy(environment, noise=0.9))
+    viewer.launch(environment, policy=create_demonstation_policy(environment, noise=0))

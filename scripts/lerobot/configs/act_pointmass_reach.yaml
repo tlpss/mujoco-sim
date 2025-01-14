@@ -25,7 +25,7 @@ override_dataset_stats:
 
 eval:
   n_episodes: 50
-  batch_size: 10
+  batch_size: 50
   use_async_envs: false
 
 
@@ -35,8 +35,8 @@ policy:
 
   # Input / output structure.
   n_obs_steps: 1
-  chunk_size: 100 # chunk_size
-  n_action_steps: 100
+  chunk_size: 8 # chunk_size
+  n_action_steps: 4
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
@@ -59,9 +59,9 @@ policy:
   replace_final_stride_with_dilation: false
   # Transformer layers.
   pre_norm: false
-  dim_model: 512
-  n_heads: 8
-  dim_feedforward: 3200
+  dim_model: 64
+  n_heads: 2
+  dim_feedforward: 128
   feedforward_activation: relu
   n_encoder_layers: 4
   # Note: Although the original ACT implementation has 7 for `n_decoder_layers`, there is a bug in the code
@@ -108,17 +108,17 @@ video_backend: pyav
 
 
 wandb:
-  enable: false
+  enable: true
   # Set to true to disable saving an artifact despite save_checkpoint == True
-  disable_artifact: false
+  disable_artifact: true
   project: lerobot
   notes: ""
 
 training:
-  offline_steps: 100000
+  offline_steps: 20000
   online_steps: 0
-  log_freq: 1000
-  eval_freq: 20000
+  log_freq: 200
+  eval_freq: 500
   save_freq: 20000
   save_checkpoint: false
 

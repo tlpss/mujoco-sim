@@ -8,7 +8,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.sac.sac import SAC
 from wandb.integration.sb3 import WandbCallback
 
-from mujoco_sim.environments.dmc2gym import DMCWrapper
+from mujoco_sim.environments.dmc2gym import DMCEnvironmentAdapter
 from mujoco_sim.gym_video_wrapper import VideoRecorderWrapper
 
 
@@ -20,7 +20,7 @@ def sb3_sac(dmc_env: Environment, hparam_config, task_config, log_dir: Path, tag
     wandb.config.update(config_dict)  # strange but wandb did not set dict in init..?
 
     torch.manual_seed(hparam_config.seed)
-    gym_env = DMCWrapper(dmc_env, flatten_observation_space=False, render_camera_id=0)
+    gym_env = DMCEnvironmentAdapter(dmc_env, flatten_observation_space=False, render_camera_id=0)
     gym_env = VideoRecorderWrapper(
         gym_env, log_dir / f"{run.name}_videos", capture_every_n_episodes=20, log_wandb=True, rescale_video_factor=1
     )

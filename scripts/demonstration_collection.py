@@ -291,8 +291,28 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
     cv2.destroyAllWindows()
 
 
+# data collection that is not blocking on user input or uses a UI, to use with remote machines for sim envs
+
+def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n_episodes=50):
+    obs, info = env.reset()
+    dataset_recorder.start_episode()
+    done = False
+    for i in range(n_episodes):
+        while not done:
+            action = agent_callable(env)
+            new_obs, reward, termination, truncation, info = env.step(action)
+            done = termination or truncation
+            dataset_recorder.record(obs, action, reward, done, info)
+            obs = new_obs
+        dataset_recorder.save_episode()
+        env.reset()
+        dataset_recorder.start_episode()
+        done = False
+
+    dataset_recorder.finish_recording()
+
 if __name__ == "__main__":
-    import pygame
+    # import pygame
 
     from mujoco_sim.environments.tasks.point_reach import create_demonstation_policy
 
@@ -311,4 +331,6 @@ if __name__ == "__main__":
         round(1 / env.dmc_env.control_timestep()),
         use_videos=False,
     )
-    collect_demonstrations(action_callable, env, dataset_recorder)
+    # collect_demonstrations(action_callable, env, dataset_recorder)
+    # set MUJOCO_GL=egl to run this on a remote machine
+    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)

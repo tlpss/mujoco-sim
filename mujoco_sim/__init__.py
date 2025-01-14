@@ -9,14 +9,14 @@ _LOGGING_DIR = pathlib.Path(__file__).parents[1] / "logging"
 import gymnasium
 from dm_control.composer import Environment as DMCEnvironment
 
-from mujoco_sim.environments.dmc2gym import DMCWrapper
+from mujoco_sim.environments.dmc2gym import DMCEnvironmentAdapter
 from mujoco_sim.environments.tasks.point_reach import PointMassReachTask
 
 
 def make_point_mass_reach_env(**kwargs):
     task = PointMassReachTask(**kwargs)
     env = DMCEnvironment(task, strip_singleton_obs_buffer_dim=True)
-    gym_env = DMCWrapper(env, flatten_observation_space=False)
+    gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
     return gym_env
 
 
