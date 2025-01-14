@@ -126,6 +126,9 @@ class DMCWrapper(gymnasium.Env):
         return self._action_space
 
     def seed(self, seed):
+        # set the seed of the random generator of the episode
+        # will be applied during reset by the DMC env
+        self._env._fixed_random_state = np.random.RandomState(seed)
         self._action_space.seed(seed)
         self._observation_space.seed(seed)
 
@@ -145,13 +148,15 @@ class DMCWrapper(gymnasium.Env):
 
         done = truncated or terminated
         info["discount"] = time_step.discount
-        info["TimeLimit.truncated"] = truncated
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
 
-    def reset(self):
+    def reset(self,seed:int = None):
+        if seed is not None:
+            self.seed(seed)
         time_step = self._env.reset()
         obs = self._get_obs(time_step)
-        return obs
+        info = {} #new gym API requires info in reset as well.
+        return obs, info
 
     def render(self, mode="rgb_array"):
         assert mode == "rgb_array", "only support rgb_array mode, given %s" % mode
@@ -166,18 +171,19 @@ if __name__ == "__main__":
 
     from dm_control.composer import Environment
 
-    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, PointReachConfig
+    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask
 
-    task = PointMassReachTask(PointReachConfig())
+    task = PointMassReachTask()
     env = Environment(task, strip_singleton_obs_buffer_dim=True)
     print(env.action_spec())
     print(env.observation_spec())
     gym_env = DMCWrapper(env, flatten_observation_space=False)
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
-    obs = gym_env.reset()
+    obs,info = gym_env.reset()
     print(f"{obs=}")
-    obs, reward, done, info = gym_env.step(gym_env.action_space.sample())
+    obs, reward, terminated, truncated, info = gym_env.step(gym_env.action_space.sample())
+    done = terminated or truncated
     img = gym_env.render()
     print(img.shape)
     print(f"{obs=}")
