@@ -49,6 +49,10 @@ class PointMassReachTask(composer.Task):
     and many callbacks as described in section 5.3 of the dm_control paper.
 
     The task will later be wrapped by an 'Environment' to create the RL env
+
+
+    cf. Kevin Zakka's RoboPianist for a well-coded example of how to create RL envs with dm_control
+    https://github.com/google-research/robopianist/tree/main/robopianist
     """
 
     def __init__(
@@ -68,6 +72,7 @@ class PointMassReachTask(composer.Task):
         self._arena = WalledPointmassArena()
 
         # have to define the mocap here to make sure it is a child of the worldboddy...
+        # mocap serves as 'actuator' for the pointmass
         mocap = build_mocap(self._arena.mjcf_model, "pointmass_mocap")
         self.pointmass = PointMass2D(mocap=mocap, radius=0.05)
         self._arena.attach(self.pointmass)
@@ -161,7 +166,6 @@ class PointMassReachTask(composer.Task):
             self.pointmass.get_position(physics) - physics.bind(self.target).pos[:2]
         )
 
-    # print(f"{self.pointmass.get_position(physics)} -> {self._goal_position(physics)}")
     def get_reward(self, physics):
         del physics  # unused
 
@@ -192,6 +196,7 @@ class PointMassReachTask(composer.Task):
         return self.distance_to_target < GOAL_DISTANCE_THRESHOLD
     
     def get_discount(self, physics):
+        # feature of DM env that is not used in Gymnasium Env.. 
         if self.is_goal_reached(physics):
             return 0.0 
         return 1.0  

@@ -1,6 +1,9 @@
 """ Adapter for the dm_env to create a gymnasium Env Interface
 
 based on  https://github.com/denisyarats/dmc2gym/blob/master/dmc2gym/wrappers.py
+
+DMC env api documentation: https://github.com/google-deepmind/dm_env/blob/master/docs/index.md, https://arxiv.org/pdf/2006.12983#page=11.68
+gym env api documentation: https://gymnasium.farama.org/api/env/
 """
 
 from typing import List
@@ -137,15 +140,15 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         # env signals stop but agent should bootstrap from next_obs so discount > 0
         # as this is not a true terminal state
         # cf https://arxiv.org/pdf/1712.00378.pdf
-        # for true terminal states, discount is 0.0. 
-        truncated = time_step.last() and time_step.discount > 0.0
-        terminated = time_step.last() and time_step.discount == 0.0
+        
+        truncated = time_step.last() and not self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
+        terminated = time_step.last() and self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
 
 
          # check for succcess and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
         # check if method "is_goal_reached" exists in the env
         if hasattr(self._env.task, "is_goal_reached"):
-            info["is_success"] = self._env.task.is_goal_reached(self._env.physics)
+            info["is_success"] = self._env.task.is_goal_reached(self._env.physics) * 1.0
         
         # log discount as it is not passed explicitly in gym env
         info["discount"] = time_step.discount

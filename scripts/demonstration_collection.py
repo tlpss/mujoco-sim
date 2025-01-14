@@ -294,10 +294,10 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
 # data collection that is not blocking on user input or uses a UI, to use with remote machines for sim envs
 
 def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n_episodes=50):
-    obs, info = env.reset()
-    dataset_recorder.start_episode()
-    done = False
-    for i in range(n_episodes):
+    for _ in range(n_episodes):
+        obs, info = env.reset()
+        done = False
+        dataset_recorder.start_episode()
         while not done:
             action = agent_callable(env)
             new_obs, reward, termination, truncation, info = env.step(action)
@@ -305,9 +305,6 @@ def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n
             dataset_recorder.record(obs, action, reward, done, info)
             obs = new_obs
         dataset_recorder.save_episode()
-        env.reset()
-        dataset_recorder.start_episode()
-        done = False
 
     dataset_recorder.finish_recording()
 
