@@ -106,7 +106,9 @@ class Robot(composer.Entity):
     def mjcf_model(self):
         return self._model
 
-    def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE, current_joints = None) -> Optional[JOINT_CONFIGURATION_TYPE]:
+    def get_joint_positions_from_tcp_pose(
+        self, tcp_pose: POSE_TYPE, current_joints=None
+    ) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
         q_guess = current_joints if current_joints is not None else self.home_joint_positions
         joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)
@@ -307,6 +309,7 @@ class UR5e(Robot):
         # get the robot model and change the base orientation
         self._model.find("body", "base").quat = [0, 0, 0, -1]
         return ret
+
 
 def test_ur5e_position_controllers_servoL():
     import matplotlib.pyplot as plt

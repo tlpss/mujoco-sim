@@ -8,15 +8,14 @@ import dataclasses
 
 import numpy as np
 from dm_control import composer
-from dm_control.composer.observation import observable
 from dm_env import specs
 
 from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.gripper import Robotiq2f85
-from mujoco_sim.entities.robots.robot import UR5e
 from mujoco_sim.entities.props.switch import Switch
-from mujoco_sim.environments.tasks.base import RobotTask, TaskConfig
+from mujoco_sim.entities.robots.robot import UR5e
+from mujoco_sim.environments.tasks.base import TaskConfig
 from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
@@ -34,7 +33,7 @@ class RobotPushButtonConfig(TaskConfig):
     ABS_EEF_ACTION = "absolute_eef_action"
     ABS_JOIN_ACTION = "absolute_joint_action"
 
-    REWARD_TYPES = (SPARSE_REWARD)
+    REWARD_TYPES = SPARSE_REWARD
     OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
     ACTION_TYPES = (ABS_EEF_ACTION, ABS_JOIN_ACTION)
 
@@ -74,7 +73,7 @@ class RobotPushButtonConfig(TaskConfig):
 class RobotPushButtonTask(composer.Task):
     def __init__(self, config: RobotPushButtonConfig) -> None:
         super().__init__()
-        self.config: RobotPushButtonConfig  = config
+        self.config: RobotPushButtonConfig = config
 
         # create arena, robot and EEF
         self._arena = EmptyRobotArena(3)
@@ -84,16 +83,14 @@ class RobotPushButtonTask(composer.Task):
         self._arena.attach(self.robot, self._arena.robot_attachment_site)
 
         self.switch = Switch()
-        
 
         # attach switch to world
         self._arena.attach(self.switch)
 
-
         # create robot workspace and all the spawn spaces
         self.robot_workspace = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
         self.robot_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
-        self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.0,0.0))
+        self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.0, 0.0))
 
         # for debugging camera views etc: add workspace to scene
         # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
@@ -106,8 +103,7 @@ class RobotPushButtonTask(composer.Task):
 
         # create additional observables / Sensors
 
-        self._task_observables = {
-        }
+        self._task_observables = {}
         self._configure_observables()
 
         # set timesteps
@@ -115,13 +111,13 @@ class RobotPushButtonTask(composer.Task):
         self.physics_timestep = self.config.physics_timestep
         self.control_timestep = self.config.control_timestep
 
-        self.robot_end_position = np.array([0.0, -0.5, 0.3]) # end position of the robot once the switch is activated
+        self.robot_end_position = np.array([0.0, -0.5, 0.3])  # end position of the robot once the switch is activated
+
     def _configure_observables(self):
         if self.config.observation_type == RobotPushButtonConfig.STATE_OBS:
             # self.switch.observables.position.enabled = True
             # self.switch.observables.active.enabled = True
             self.robot.observables.tcp_position.enabled = True
-
 
         elif self.config.observation_type == RobotPushButtonConfig.VISUAL_OBS:
             self.robot.observables.tcp_position.enabled = True
@@ -134,7 +130,7 @@ class RobotPushButtonTask(composer.Task):
         # ŧarget position
         self.robot.set_tcp_pose(physics, robot_initial_pose)
         switch_position = self.target_spawn_space.sample()
-        self.switch.set_pose(physics,position=switch_position)
+        self.switch.set_pose(physics, position=switch_position)
 
         # print(f"target position: {target_position}")
         # print(self.goal_position_observable(physics))
@@ -158,7 +154,6 @@ class RobotPushButtonTask(composer.Task):
         self.gripper.move(physics, griper_target)
         self.robot.servoL(physics, np.concatenate([robot_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
-
     # def after_step(self, physics, random_state):
     #     x = physics.bind(self.switch.touch_sensor)
     #     print(x.sensordata[0])
@@ -167,7 +162,6 @@ class RobotPushButtonTask(composer.Task):
 
         if self.config.reward_type == RobotPushButtonConfig.SPARSE_REWARD:
             return self.is_task_accomplished(physics) * 1.0
-
 
     def action_spec(self, physics):
         del physics
@@ -189,14 +183,18 @@ class RobotPushButtonTask(composer.Task):
                 ],
             )
 
-    
-
     def is_task_accomplished(self, physics) -> bool:
         print(np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - self.robot_end_position))
-        return self.switch.is_active and np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - self.robot_end_position) < self.config.goal_distance_threshold
+        return (
+            self.switch.is_active
+            and np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - self.robot_end_position)
+            < self.config.goal_distance_threshold
+        )
 
     def should_terminate_episode(self, physics):
         return self.is_task_accomplished(physics)
+
+
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
     environment.observation_spec()
@@ -213,13 +211,14 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
     def demonstration_policy(time_step: composer.TimeStep):
 
         assert isinstance(environment.task, RobotPushButtonTask)
-        assert environment.task.config.action_type == RobotPushButtonConfig.ABS_EEF_ACTION, "only implemented demonstrator for EEF actions for now"
+        assert (
+            environment.task.config.action_type == RobotPushButtonConfig.ABS_EEF_ACTION
+        ), "only implemented demonstrator for EEF actions for now"
         # get the current physics state
         physics = environment.physics
         # get the current robot pose
         robot_position = environment.task.robot.get_tcp_pose(physics).copy()
         robot_position = robot_position[:3]
-
 
         # get the current target pose
         switch_position = environment.task.switch.get_position(physics)
@@ -229,15 +228,18 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
         is_switch_active = environment.task.switch.is_active
 
         # if robot is not above the switch and switch is not active, this is phase 1
-        # if robot is above that pose and switch is not active, this is phase 2 
+        # if robot is above that pose and switch is not active, this is phase 2
         # if switch is active, this is phase 3
-   
-    
+
         if is_switch_active:
             phase = 3
-        elif robot_position[2] > target_position[2] and np.linalg.norm(robot_position[:2] - target_position[:2]) < 0.01 and not is_switch_active:
+        elif (
+            robot_position[2] > target_position[2]
+            and np.linalg.norm(robot_position[:2] - target_position[:2]) < 0.01
+            and not is_switch_active
+        ):
             phase = 2
-        else: 
+        else:
             phase = 1
         print(f"phase: {phase}")
         print(f"target position: {target_position}")
@@ -251,19 +253,14 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
                 action = target_position
                 action[2] = target_position[2] + 0.05
                 print("moving towards")
-        
+
         if phase == 2:
             # move down to the target
             action = target_position
-        
+
         if phase == 3:
             # move to the end pose
-            action = np.array([0.0,-0.5,0.3])
-        
-
-
-    
-
+            action = np.array([0.0, -0.5, 0.3])
 
         # calculate the action to reach the target
         difference = action - robot_position[:3]

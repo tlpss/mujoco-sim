@@ -23,7 +23,7 @@ from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.gripper import Robotiq2f85
 from mujoco_sim.entities.robots.robot import UR5e
-from mujoco_sim.environments.tasks.base import RobotTask, TaskConfig
+from mujoco_sim.environments.tasks.base import TaskConfig
 from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
@@ -84,7 +84,7 @@ class RobotReachConfig(TaskConfig):
 class RobotReachTask(composer.Task):
     def __init__(self, config: RobotReachConfig) -> None:
         super().__init__()
-        self.config: RobotReachConfig  = config
+        self.config: RobotReachConfig = config
 
         # create arena, robot and EEF
         self._arena = EmptyRobotArena(3)
@@ -222,7 +222,9 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
     def demonstration_policy(time_step: composer.TimeStep):
 
         assert isinstance(environment.task, RobotReachTask)
-        assert environment.task.config.action_type == RobotReachConfig.ABS_EEF_ACTION, "only implemented demonstrator for EEF actions for now"
+        assert (
+            environment.task.config.action_type == RobotReachConfig.ABS_EEF_ACTION
+        ), "only implemented demonstrator for EEF actions for now"
         # get the current physics state
         physics = environment.physics
         # get the current robot pose
@@ -244,7 +246,7 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
         if np.max(np.abs(difference)) > 0.5:
             difference = difference * 0.5 / np.max(np.abs(difference)) * environment.control_timestep()
         action = robot_pose[:3] + difference
-        #action = np.array([0.2,-0.2,0.2])
+        # action = np.array([0.2,-0.2,0.2])
         return action
 
     return demonstration_policy

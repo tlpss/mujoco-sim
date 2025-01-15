@@ -254,7 +254,7 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
 
         while not done and state_machine.state is state_machine.STATES.recording:
             action = agent_callable(env)
-            next_obs, reward, termination,truncation, info = env.step(action)
+            next_obs, reward, termination, truncation, info = env.step(action)
             done = termination or truncation
             dataset_recorder.record(obs, action, reward, done, info)
             obs = next_obs
@@ -266,7 +266,7 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
             # cv2.imshow("Demonstration Collection Rendering", img)
             # cv2.waitKey(1)
             # add img to the screen
-            x = input("Press enter to continue")
+            input("Press enter to continue")
 
             state_machine.update_state_from_keyboard()
             state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "")
@@ -293,6 +293,7 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
 
 # data collection that is not blocking on user input or uses a UI, to use with remote machines for sim envs
 
+
 def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n_episodes=50):
     for _ in range(n_episodes):
         obs, info = env.reset()
@@ -307,6 +308,7 @@ def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n
         dataset_recorder.save_episode()
 
     dataset_recorder.finish_recording()
+
 
 if __name__ == "__main__":
     # import pygame
@@ -330,4 +332,4 @@ if __name__ == "__main__":
     )
     collect_demonstrations(action_callable, env, dataset_recorder)
     # set MUJOCO_GL=egl to run this on a remote machine
-    #collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)
+    # collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)

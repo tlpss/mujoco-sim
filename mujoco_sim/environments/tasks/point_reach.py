@@ -186,20 +186,19 @@ class PointMassReachTask(composer.Task):
     def _max_time_exceeded(self, physics):
         return physics.data.time >= MAX_CONTROL_STEPS_PER_EPISODE * CONTROL_TIMESTEP
 
-
     def should_terminate_episode(self, physics):
-        # time limit violations (truncations) for finite formulations if infinite horizon task 
+        # time limit violations (truncations) for finite formulations if infinite horizon task
         # or terminal states (goal reached or invalid states, e.g. collisions)
         return self.is_goal_reached(physics) or self._max_time_exceeded(physics)
 
     def is_goal_reached(self, physics):
         return self.distance_to_target < GOAL_DISTANCE_THRESHOLD
-    
+
     def get_discount(self, physics):
-        # feature of DM env that is not used in Gymnasium Env.. 
+        # feature of DM env that is not used in Gymnasium Env..
         if self.is_goal_reached(physics):
-            return 0.0 
-        return 1.0  
+            return 0.0
+        return 1.0
 
     def action_spec(self, physics):
         del physics

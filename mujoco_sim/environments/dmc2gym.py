@@ -88,7 +88,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         self.render_dims = render_dims
         self._env = env
         self._action_space = _convert_specs_to_flattened_box([self._env.action_spec()], np.float32)
-        
+
         # create observation space
         if flatten_observation_space:
             self._observation_space = _convert_specs_to_flattened_box(
@@ -140,29 +140,28 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         # env signals stop but agent should bootstrap from next_obs so discount > 0
         # as this is not a true terminal state
         # cf https://arxiv.org/pdf/1712.00378.pdf
-        
-        #TODO: this is not correct atm! should terminate is truncated OR terminated...
+
+        # TODO: this is not correct atm! should terminate is truncated OR terminated...
         # should use Env time limit to deal with truncations.
         truncated = time_step.last() and not self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
         terminated = time_step.last() and self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
 
-
-         # check for succcess and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
+        # check for succcess and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
         # check if method "is_goal_reached" exists in the env
         if hasattr(self._env.task, "is_goal_reached"):
             info["is_success"] = self._env.task.is_goal_reached(self._env.physics) * 1.0
-        
+
         # log discount as it is not passed explicitly in gym env
         info["discount"] = time_step.discount
 
         return obs, reward, terminated, truncated, info
 
-    def reset(self,seed:int = None):
+    def reset(self, seed: int = None):
         if seed is not None:
             self.seed(seed)
         time_step = self._env.reset()
         obs = self._get_obs(time_step)
-        info = {} #new gym API requires info in reset as well.
+        info = {}  # new gym API requires info in reset as well.
         return obs, info
 
     def render(self, mode="rgb_array"):
@@ -187,7 +186,7 @@ if __name__ == "__main__":
     gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
-    obs,info = gym_env.reset()
+    obs, info = gym_env.reset()
     print(f"{obs=}")
     obs, reward, terminated, truncated, info = gym_env.step(gym_env.action_space.sample())
     done = terminated or truncated

@@ -195,9 +195,9 @@ class RobotPushTask(RobotTask):
 
         target_position = np.zeros((3,))
         target_position[:2] = action
-        target_position[2] = 0.02 # keep z position constant
-        #target_position = self.robot_workspace.clip_to_space(target_position)
-        self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]),self.control_timestep)
+        target_position[2] = 0.02  # keep z position constant
+        # target_position = self.robot_workspace.clip_to_space(target_position)
+        self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def get_reward(self, physics):
         if self.config.reward_type == RobotPushConfig.SPARSE_REWARD:
@@ -239,6 +239,7 @@ class RobotPushTask(RobotTask):
     def should_terminate_episode(self, physics):
         return self.is_task_accomplished(physics) or self.current_step >= self.config.max_control_steps_per_episode
 
+
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
     environment.observation_spec()
@@ -251,12 +252,12 @@ def create_random_policy(environment: composer.Environment):
     return random_policy
 
 
-
 import sys
 import termios
-import click
 import tty
-import time
+
+import click
+
 
 def getch():
     """
@@ -291,27 +292,22 @@ def create_demonstration_policy(environment: composer.Environment):
 
         # use arrows to control the robot
 
-        if key =="j":
+        if key == "j":
             eef_action = np.array([0.0, 0.1])
-        elif key =="l": 
+        elif key == "l":
             eef_action = np.array([0.0, -0.1])
-        elif key =="i":
+        elif key == "i":
             eef_action = np.array([0.1, 0.0])
-        elif key =="k":
+        elif key == "k":
             eef_action = np.array([-0.1, 0.0])
-        else: 
+        else:
             eef_action = np.array([0.0, 0.0])
         return eef_action
-
-        
-        
-    
 
     return demonstration_policy
 
 
 if __name__ == "__main__":
-    from dm_control import viewer
     from dm_control.composer import Environment
 
     task = RobotPushTask(
@@ -326,14 +322,13 @@ if __name__ == "__main__":
     print(environment.action_spec())
     print(environment.observation_spec())
     print(timestep.observation)
-   
 
     # viewer.launch(environment, policy=create_demonstration_policy(environment))
-
 
     environment.reset()
     done = False
     import cv2
+
     window = cv2.namedWindow("image", cv2.WINDOW_NORMAL)
     while not done:
         img = environment.physics.render(camera_id=0)
@@ -353,6 +348,5 @@ if __name__ == "__main__":
             break
         timestep = environment.step(action)
         done = timestep.last()
-        
 
     # mouse position on the viewer
