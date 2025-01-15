@@ -106,9 +106,10 @@ class Robot(composer.Entity):
     def mjcf_model(self):
         return self._model
 
-    def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
+    def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE, current_joints = None) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
-        joint_config = self.ik_solver.solve_ik(flange_pose, self.home_joint_positions)
+        q_guess = current_joints if current_joints is not None else self.home_joint_positions
+        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)
         return joint_config
 
     def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
@@ -165,7 +166,8 @@ class Robot(composer.Entity):
         self.joint_trajectory = None
 
     def set_tcp_pose(self, physics: mjcf.Physics, pose: np.ndarray):
-        joint_positions = self.get_joint_positions_from_tcp_pose(pose)
+        current_joints = self.get_joint_positions(physics)
+        joint_positions = self.get_joint_positions_from_tcp_pose(pose, current_joints)
         if joint_positions is not None:
             self.set_joint_positions(physics, joint_positions)
         else:
@@ -186,8 +188,8 @@ class Robot(composer.Entity):
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
         if speed > self.max_joint_speed:
             print(f"required joint speed {speed} is too high for this robot.")
-
-        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        current_joint_positions = self.get_joint_positions(physics)
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose, current_joint_positions)
         if target_joint_positions is None:
             # TODO : log IK failed
             print("IK failed")
@@ -206,7 +208,8 @@ class Robot(composer.Entity):
         self.joint_trajectory = trajectory
 
     def servoL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, time: float):
-        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        current_joint_positions = self.get_joint_positions(physics)
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose, current_joint_positions)
         if target_joint_positions is None:
             # failsafe for IK solver not finding a solution
             print("IK failed")
@@ -304,7 +307,6 @@ class UR5e(Robot):
         # get the robot model and change the base orientation
         self._model.find("body", "base").quat = [0, 0, 0, -1]
         return ret
-
 
 def test_ur5e_position_controllers_servoL():
     import matplotlib.pyplot as plt

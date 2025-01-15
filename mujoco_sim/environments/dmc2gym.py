@@ -136,11 +136,13 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         time_step = self._env.step(action)
         reward = time_step.reward
         obs = self._get_obs(time_step)
-        # truncated = finite-horizon formulation timeout of inifite task
+        # truncated = finite-horizon formulation timeout of infinite task
         # env signals stop but agent should bootstrap from next_obs so discount > 0
         # as this is not a true terminal state
         # cf https://arxiv.org/pdf/1712.00378.pdf
         
+        #TODO: this is not correct atm! should terminate is truncated OR terminated...
+        # should use Env time limit to deal with truncations.
         truncated = time_step.last() and not self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
         terminated = time_step.last() and self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
 

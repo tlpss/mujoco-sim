@@ -1,13 +1,5 @@
 """
-This task is a simple Reach task where the robot has to reach a target position with its end effector.
 
-Observations are either proprioception and image or proprioception and target position
-
-Rewards are either sparse or dense negative distance reward
-
-Action space is either target TCP poses or target joint configurations
-
-The task is solved if the distance between the robot's end effector and the target is less than a threshold
 
 """
 from __future__ import annotations
@@ -23,6 +15,7 @@ from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.gripper import Robotiq2f85
 from mujoco_sim.entities.robots.robot import UR5e
+from mujoco_sim.entities.props.switch import Switch
 from mujoco_sim.environments.tasks.base import RobotTask, TaskConfig
 from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 
@@ -30,23 +23,20 @@ TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
 
 
 @dataclasses.dataclass
-class RobotReachConfig(TaskConfig):
+class RobotPushButtonConfig(TaskConfig):
     # add these macros in the class to make it easier to use them
     # without having to import them separately
     SPARSE_REWARD = "sparse_reward"
-    DENSE_NEG_DISTANCE_REWARD = "dense_negative_distance_reward"
 
     STATE_OBS = "state_observations"
     VISUAL_OBS = "visual_observations"
 
-    REL_EEF_ACTION = "relative_eef_action"
     ABS_EEF_ACTION = "absolute_eef_action"
-    REL_JOIN_ACTION = "relative_joint_action"
     ABS_JOIN_ACTION = "absolute_joint_action"
 
-    REWARD_TYPES = (SPARSE_REWARD, DENSE_NEG_DISTANCE_REWARD)
+    REWARD_TYPES = (SPARSE_REWARD)
     OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
-    ACTION_TYPES = (REL_EEF_ACTION, ABS_EEF_ACTION, REL_JOIN_ACTION, ABS_JOIN_ACTION)
+    ACTION_TYPES = (ABS_EEF_ACTION, ABS_JOIN_ACTION)
 
     FRONT_TILTED_CAMERA_CONFIG = CameraConfig(np.array([0.0, -1.1, 0.5]), np.array([-0.7, -0.35, 0, 0.0]), 70)
 
@@ -63,7 +53,7 @@ class RobotReachConfig(TaskConfig):
     max_control_steps_per_episode: int = 100
     image_resolution: int = 96
 
-    goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
+    goal_distance_threshold: float = 0.05  # task solved if dst(point,goal) < threshold
     target_radius = 0.03  # radius of the target site
 
     cameraconfig: CameraConfig = None
@@ -71,20 +61,20 @@ class RobotReachConfig(TaskConfig):
     def __post_init__(self):
         # set default values if not set
         # https://stackoverflow.com/questions/56665298/how-to-apply-default-value-to-python-dataclass-field-when-none-was-passed
-        self.reward_type = self.reward_type or RobotReachConfig.DENSE_NEG_DISTANCE_REWARD
-        self.observation_type = self.observation_type or RobotReachConfig.STATE_OBS
-        self.action_type = self.action_type or RobotReachConfig.ABS_EEF_ACTION
-        self.cameraconfig = self.cameraconfig or RobotReachConfig.FRONT_TILTED_CAMERA_CONFIG
+        self.reward_type = self.reward_type or RobotPushButtonConfig.SPARSE_REWARD
+        self.observation_type = self.observation_type or RobotPushButtonConfig.STATE_OBS
+        self.action_type = self.action_type or RobotPushButtonConfig.ABS_EEF_ACTION
+        self.cameraconfig = self.cameraconfig or RobotPushButtonConfig.FRONT_TILTED_CAMERA_CONFIG
 
-        assert self.observation_type in RobotReachConfig.OBSERVATION_TYPES
-        assert self.reward_type in RobotReachConfig.REWARD_TYPES
-        assert self.action_type in RobotReachConfig.ACTION_TYPES
+        assert self.observation_type in RobotPushButtonConfig.OBSERVATION_TYPES
+        assert self.reward_type in RobotPushButtonConfig.REWARD_TYPES
+        assert self.action_type in RobotPushButtonConfig.ACTION_TYPES
 
 
-class RobotReachTask(composer.Task):
-    def __init__(self, config: RobotReachConfig) -> None:
+class RobotPushButtonTask(composer.Task):
+    def __init__(self, config: RobotPushButtonConfig) -> None:
         super().__init__()
-        self.config: RobotReachConfig  = config
+        self.config: RobotPushButtonConfig  = config
 
         # create arena, robot and EEF
         self._arena = EmptyRobotArena(3)
@@ -93,20 +83,17 @@ class RobotReachTask(composer.Task):
         self.robot.attach_end_effector(self.gripper)
         self._arena.attach(self.robot, self._arena.robot_attachment_site)
 
-        # creat target
-        self.target = self._arena.mjcf_model.worldbody.add(
-            "site",
-            name="target",
-            type="sphere",
-            rgba=[1, 1, 1, 1.0],
-            size=[config.target_radius],
-            pos=[0.0, -0.5, 0.001],
-        )
+        self.switch = Switch()
+        
+
+        # attach switch to world
+        self._arena.attach(self.switch)
+
 
         # create robot workspace and all the spawn spaces
         self.robot_workspace = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
         self.robot_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
-        self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.02, 0.2))
+        self.target_spawn_space = EuclideanSpace((-0.1, 0.1), (-0.6, -0.4), (0.0,0.0))
 
         # for debugging camera views etc: add workspace to scene
         # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
@@ -118,10 +105,8 @@ class RobotReachTask(composer.Task):
         self._arena.attach(self.camera)
 
         # create additional observables / Sensors
-        self.goal_position_observable = observable.Generic(lambda physics: physics.bind(self.target).pos[:3])
 
         self._task_observables = {
-            "target_position": self.goal_position_observable,
         }
         self._configure_observables()
 
@@ -130,12 +115,15 @@ class RobotReachTask(composer.Task):
         self.physics_timestep = self.config.physics_timestep
         self.control_timestep = self.config.control_timestep
 
+        self.robot_end_position = np.array([0.0, -0.5, 0.3]) # end position of the robot once the switch is activated
     def _configure_observables(self):
-        if self.config.observation_type == RobotReachConfig.STATE_OBS:
-            self.goal_position_observable.enabled = True
+        if self.config.observation_type == RobotPushButtonConfig.STATE_OBS:
+            # self.switch.observables.position.enabled = True
+            # self.switch.observables.active.enabled = True
             self.robot.observables.tcp_position.enabled = True
 
-        elif self.config.observation_type == RobotReachConfig.VISUAL_OBS:
+
+        elif self.config.observation_type == RobotPushButtonConfig.VISUAL_OBS:
             self.robot.observables.tcp_position.enabled = True
             self.camera.observables.rgb_image.enabled = True
 
@@ -145,8 +133,8 @@ class RobotReachTask(composer.Task):
         robot_initial_pose = np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION])
         # ŧarget position
         self.robot.set_tcp_pose(physics, robot_initial_pose)
-        target_position = self.target_spawn_space.sample()
-        physics.bind(self.target).pos = target_position
+        switch_position = self.target_spawn_space.sample()
+        self.switch.set_pose(physics,position=switch_position)
 
         # print(f"target position: {target_position}")
         # print(self.goal_position_observable(physics))
@@ -163,27 +151,29 @@ class RobotReachTask(composer.Task):
         """
         if action is None:
             return
-        assert action.shape == (3,)
+        assert action.shape == (4,)
+        griper_target = action[3]
+        robot_position = action[:3]
 
-        self.robot.servoL(physics, np.concatenate([action, TOP_DOWN_QUATERNION]), self.control_timestep)
+        self.gripper.move(physics, griper_target)
+        self.robot.servoL(physics, np.concatenate([robot_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
-    def _robot_distance_to_target(self, physics):
-        return np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - physics.bind(self.target).xpos[:3])
+
+    # def after_step(self, physics, random_state):
+    #     x = physics.bind(self.switch.touch_sensor)
+    #     print(x.sensordata[0])
 
     def get_reward(self, physics):
 
-        if self.config.reward_type == RobotReachConfig.SPARSE_REWARD:
-            return self.is_task_accomplished(physics)
+        if self.config.reward_type == RobotPushButtonConfig.SPARSE_REWARD:
+            return self.is_task_accomplished(physics) * 1.0
 
-        elif self.config.reward_type == RobotReachConfig.DENSE_NEG_DISTANCE_REWARD:
-            distance = self._robot_distance_to_target(physics)
-            return -distance
 
     def action_spec(self, physics):
         del physics
         # bound = np.array([self.config.max_step_size, self.config.max_step_size])
         # normalized action space, rescaled in before_step
-        if self.config.action_type == RobotReachConfig.ABS_EEF_ACTION:
+        if self.config.action_type == RobotPushButtonConfig.ABS_EEF_ACTION:
             return specs.BoundedArray(
                 shape=(3,),
                 dtype=np.float64,
@@ -199,13 +189,14 @@ class RobotReachTask(composer.Task):
                 ],
             )
 
-        if self.config.action_type == RobotReachConfig.ABS_JOIN_ACTION:
-            return specs.BoundedArray()
+    
 
     def is_task_accomplished(self, physics) -> bool:
-        return self._robot_distance_to_target(physics) < self.config.goal_distance_threshold
+        print(np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - self.robot_end_position))
+        return self.switch.is_active and np.linalg.norm(self.robot.get_tcp_pose(physics)[:3] - self.robot_end_position) < self.config.goal_distance_threshold
 
-
+    def should_terminate_episode(self, physics):
+        return self.is_task_accomplished(physics)
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
     environment.observation_spec()
@@ -221,21 +212,61 @@ def create_random_policy(environment: composer.Environment):
 def create_demonstration_policy(environment: composer.Environment, noise_level=0.0):
     def demonstration_policy(time_step: composer.TimeStep):
 
-        assert isinstance(environment.task, RobotReachTask)
-        assert environment.task.config.action_type == RobotReachConfig.ABS_EEF_ACTION, "only implemented demonstrator for EEF actions for now"
+        assert isinstance(environment.task, RobotPushButtonTask)
+        assert environment.task.config.action_type == RobotPushButtonConfig.ABS_EEF_ACTION, "only implemented demonstrator for EEF actions for now"
         # get the current physics state
         physics = environment.physics
         # get the current robot pose
-        robot_pose = environment.task.robot.get_tcp_pose(physics).copy()
+        robot_position = environment.task.robot.get_tcp_pose(physics).copy()
+        robot_position = robot_position[:3]
+
 
         # get the current target pose
-        target_pose = physics.bind(environment.task.target).xpos.copy()
+        switch_position = environment.task.switch.get_position(physics)
+        switch_press_height = environment.task.switch.box_height + 0.01
+        target_position = np.array([switch_position[0], switch_position[1], switch_press_height])
 
-        print("robot pose", robot_pose)
-        print("target pose", target_pose)
+        is_switch_active = environment.task.switch.is_active
+
+        # if robot is not above the switch and switch is not active, this is phase 1
+        # if robot is above that pose and switch is not active, this is phase 2 
+        # if switch is active, this is phase 3
+   
+    
+        if is_switch_active:
+            phase = 3
+        elif robot_position[2] > target_position[2] and np.linalg.norm(robot_position[:2] - target_position[:2]) < 0.01 and not is_switch_active:
+            phase = 2
+        else: 
+            phase = 1
+        print(f"phase: {phase}")
+        print(f"target position: {target_position}")
+        if phase == 1:
+            # move towards the target, first move up to avoid collisions
+            if robot_position[2] < target_position[2] + 0.02:
+                action = robot_position
+                action[2] = target_position[2] + 0.05
+                print(f"moving up to {action}")
+            else:
+                action = target_position
+                action[2] = target_position[2] + 0.05
+                print("moving towards")
+        
+        if phase == 2:
+            # move down to the target
+            action = target_position
+        
+        if phase == 3:
+            # move to the end pose
+            action = np.array([0.0,-0.5,0.3])
+        
+
+
+    
+
 
         # calculate the action to reach the target
-        difference = target_pose - robot_pose[:3]
+        difference = action - robot_position[:3]
 
         # add noise
         difference += np.random.normal(0, noise_level, size=3)
@@ -243,8 +274,13 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
         # move at most 0.5m/s
         if np.max(np.abs(difference)) > 0.5:
             difference = difference * 0.5 / np.max(np.abs(difference)) * environment.control_timestep()
-        action = robot_pose[:3] + difference
-        #action = np.array([0.2,-0.2,0.2])
+        action = robot_position[:3] + difference
+        # #action = np.array([0.2,-0.2,0.2])
+
+        # add gripper, which is always closed
+        action = np.concatenate([action, [0.0]])
+        print(robot_position)
+        print(action)
         return action
 
     return demonstration_policy
@@ -254,7 +290,7 @@ if __name__ == "__main__":
     from dm_control import viewer
     from dm_control.composer import Environment
 
-    task = RobotReachTask(RobotReachConfig(observation_type=RobotReachConfig.STATE_OBS))
+    task = RobotPushButtonTask(RobotPushButtonConfig(observation_type=RobotPushButtonConfig.STATE_OBS))
 
     # dump task xml
 

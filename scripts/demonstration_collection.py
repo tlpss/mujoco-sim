@@ -245,22 +245,20 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
             state_machine.update_state_from_keyboard()
             state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "")
 
-            if dataset_recorder.n_recorded_episodes > 0:
-                state_machine.state = state_machine.STATES.recording
-            if dataset_recorder.n_recorded_episodes == 50:
-                state_machine.state = state_machine.STATES.quit
-
         if state_machine.state is state_machine.STATES.quit:
             break
 
-        env.reset()
+        obs, info = env.reset()
         dataset_recorder.start_episode()
         done = False
 
         while not done and state_machine.state is state_machine.STATES.recording:
             action = agent_callable(env)
-            obs, reward, done, info = env.step(action)
+            next_obs, reward, termination,truncation, info = env.step(action)
+            done = termination or truncation
             dataset_recorder.record(obs, action, reward, done, info)
+            obs = next_obs
+
             img = env.render()
             # reshape to (640,480)
             img = cv2.resize(img, (640, 480))
@@ -268,6 +266,8 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
             # cv2.imshow("Demonstration Collection Rendering", img)
             # cv2.waitKey(1)
             # add img to the screen
+            x = input("Press enter to continue")
+
             state_machine.update_state_from_keyboard()
             state_machine.ui.update_UI(state_machine.state, dataset_recorder.n_recorded_episodes, "")
 
@@ -328,6 +328,6 @@ if __name__ == "__main__":
         round(1 / env.dmc_env.control_timestep()),
         use_videos=False,
     )
-    # collect_demonstrations(action_callable, env, dataset_recorder)
+    collect_demonstrations(action_callable, env, dataset_recorder)
     # set MUJOCO_GL=egl to run this on a remote machine
-    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)
+    #collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)
