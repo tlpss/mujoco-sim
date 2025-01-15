@@ -1,21 +1,18 @@
 name: Pytest
-
 on:
   pull_request:
   push:
     branches: [main,ci-dev]
-
 jobs:
   conda-pytest:
     runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v2
       - name: install conda env with micromamba
-        uses: mamba-org/provision-with-micromamba@main
+        uses: mamba-org/setup-micromamba@v2
         with:
-          channel-priority: strict
           environment-file: environment.yaml
-          cache-env: true
+          cache-environment: true
       - name: Conda list
         shell: bash -l {0}
         run: conda list
