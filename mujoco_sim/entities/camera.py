@@ -15,8 +15,9 @@ class CameraConfig:
     position: np.ndarray = None
     orientation: np.ndarray = None
     fov: float = None
-    image_height: int = 64
-    image_width: int = 64
+    image_height: int = 96
+    image_width: int = 96
+    name: str = "Camera"
 
 
 class Camera(composer.Entity):
@@ -28,8 +29,17 @@ class Camera(composer.Entity):
         self.config = config
         super().__init__()
 
-    def _build(self):
-        self._model = mjcf.RootElement("Camera")
+    def _build(self, name: str = "Camera"):
+        self._model = mjcf.RootElement(self.config.name)
+        self.geom = self._model.worldbody.add(
+            "geom",
+            type="box",
+            pos=self.config.position,
+            quat=self.config.orientation,
+            size=[0.045, 0.0125, 0.0125],
+            rgba=[0, 0, 0, 1],
+        )
+        # self.lens  = self._model.worldbody.add("geom", type="sphere", pos = self.config.position , size=[0.0125,0.0125], rgba=[0, 0, 0, 1])
         self._camera = self._model.worldbody.add(
             "camera", mode="fixed", pos=self.config.position, quat=self.config.orientation, fovy=self.config.fov
         )

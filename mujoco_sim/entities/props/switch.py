@@ -80,7 +80,7 @@ class Switch(composer.Entity):
         return self._is_active
 
     def get_position(self, physics):
-        return physics.bind(self._cube_geom).xpos
+        return physics.bind(self._button_geom).xpos + 0.5 * self._button_geom.size[1]
 
 
 class SwitchObservables(composer.Observables):

@@ -111,7 +111,7 @@ class Robot(composer.Entity):
     ) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
         q_guess = current_joints if current_joints is not None else self.home_joint_positions
-        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)
+        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)[0]
         return joint_config
 
     def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
