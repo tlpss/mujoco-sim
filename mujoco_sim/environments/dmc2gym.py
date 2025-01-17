@@ -81,7 +81,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         env: Environment,
         flatten_observation_space: bool = False,
         render_camera_id=-1,  # the free camera that is always available.
-        render_dims: tuple[int, int] = (96, 96),
+        render_dims: tuple[int, int] = (256, 256),
     ):
         self.flatten_observation_space = flatten_observation_space
         self._camera_id = render_camera_id
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     )
     print(env.action_spec())
     print(env.observation_spec())
-    gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
+    gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False, render_dims=(256, 256))
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
     obs, info = gym_env.reset()

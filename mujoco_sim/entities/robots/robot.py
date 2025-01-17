@@ -194,8 +194,8 @@ class Robot(composer.Entity):
         raise NotImplementedError("moveL not implemented")
 
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
-        if speed > self.max_joint_speed:
-            print(f"required joint speed {speed} is too high for this robot.")
+        # if speed > self.max_joint_speed:
+        # print(f"required joint speed {speed} is too high for this robot.")
         current_joint_positions = self.get_joint_positions(physics)
         target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose, current_joint_positions)
         if target_joint_positions is None:
@@ -247,10 +247,10 @@ class Robot(composer.Entity):
 
         difference_vector = target_joint_positions - current_joint_positions
         # speed is defined as largest joint movement divided by time
-        speed = np.max(np.abs(difference_vector)) / time
+        np.max(np.abs(difference_vector)) / time
 
-        if speed > self.max_joint_speed:
-            print(f"required joint speed {speed} is too high for this robot.")
+        # if speed > self.max_joint_speed:
+        #     print(f"required joint speed {speed} is too high for this robot.")
 
         start_time = physics.time()
         trajectory = JointTrajectory(
