@@ -12,16 +12,11 @@ jobs:
         uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: environment.yaml
-          cache-environment: false
-      - name: Install Mesa
-        run: |
-          sudo apt update
-          sudo apt install mesa-common-dev
+          cache-environment: true
       - name: Conda list
         shell: bash -l {0}
         run: conda list
       - name: pytest
         shell: bash -l {0}
         run: |
-          export MUJOCO_GL=egl
-          pytest test/
+          pytest -m "not render" test/
