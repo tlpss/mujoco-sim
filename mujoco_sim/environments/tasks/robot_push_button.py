@@ -82,6 +82,7 @@ class RobotPushButtonTask(composer.Task):
         observation_type: str = VISUAL_OBS,
         action_type: str = ABS_JOINT_ACTION,
         image_resolution: int = 96,
+        button_disturbances: bool = False
     ) -> None:
         super().__init__()
 
@@ -89,6 +90,7 @@ class RobotPushButtonTask(composer.Task):
         self.observation_type = observation_type
         self.action_type = action_type
         self.image_resolution = image_resolution
+        self.button_disturbances = button_disturbances
 
         # create arena, robot and EEF
         self._arena = EmptyRobotArena(3)
@@ -135,6 +137,8 @@ class RobotPushButtonTask(composer.Task):
             self.robot.observables.tcp_position.enabled = True
         else:
             self.robot.observables.joint_configuration.enabled = True
+        #TODO: add gripper state.
+
         if self.observation_type == RobotPushButtonTask.STATE_OBS:
             self.switch.observables.position.enabled = True
             self.switch.observables.active.enabled = True
@@ -176,6 +180,12 @@ class RobotPushButtonTask(composer.Task):
             self.gripper.move(physics, gripper_target)
             self.robot.servoJ(physics, joint_configuration, self.control_timestep)
 
+    def after_step(self, physics, random_state):
+        # if the button is active, with some probability make it inactive
+        if self.button_disturbances:
+            if self.switch.is_active and random_state.rand() < 0.01: # (0.99)**30 = 0.74 probability to reach end pose before disturbance.
+                self.switch.set_active(physics, False)
+        return super().after_step(physics, random_state)
     def get_reward(self, physics):
 
         if self.reward_type == RobotPushButtonTask.SPARSE_REWARD:
@@ -240,10 +250,10 @@ class RobotPushButtonTask(composer.Task):
 
         return random_policy
 
-    def create_demonstration_policy(self):  # noqa C901
+    def create_demonstration_policy(self, environment):  # noqa C901
         def demonstration_policy(time_step: composer.TimeStep):
-            # get the current physics state
             physics = environment.physics
+            # get the current physics state
             # get the current robot pose
             robot_position = self.robot.get_tcp_pose(physics).copy()
             robot_position = robot_position[:3]
@@ -291,7 +301,6 @@ class RobotPushButtonTask(composer.Task):
                 if np.linalg.norm(switch_position[:2] - robot_position[:2]) < 0.05:
                     action[2] = target_position[2] + 0.1  # avoid touching button upon moving to end position
 
-            print(f"action: {action}")
             # calculate the action to reach the target
             difference = action - robot_position[:3]
 
@@ -321,6 +330,7 @@ if __name__ == "__main__":
         reward_type=RobotPushButtonTask.SPARSE_REWARD,
         observation_type=RobotPushButtonTask.VISUAL_OBS,
         action_type=RobotPushButtonTask.ABS_JOINT_ACTION,
+        button_disturbances=True
     )
 
     # dump task xml

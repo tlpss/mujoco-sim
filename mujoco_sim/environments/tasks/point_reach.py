@@ -224,10 +224,10 @@ class PointMassReachTask(composer.Task):
 
         return random_policy
 
-    def create_demonstation_policy(self, noise: float = 0.0):
+    def create_demonstation_policy(self,physics, noise: float = 0.0):
         def policy(time_step):
-            current_position = self.pointmass.get_position(environment.physics)
-            target_position = self._goal_position(environment.physics)
+            current_position = self.pointmass.get_position(physics)
+            target_position = self._goal_position(physics)
 
             action = target_position - current_position
             if noise > 0:
