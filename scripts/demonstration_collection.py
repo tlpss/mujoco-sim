@@ -313,14 +313,14 @@ def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n
 
 if __name__ == "__main__":
     # import pygame
+    import mujoco_sim # noqa
 
-    from mujoco_sim.environments.tasks.point_reach import create_demonstation_policy
 
-    env = gymnasium.make("mujoco_sim/point_mass_reach-v0")
+    env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0")
 
-    dmc_env = env.dmc_env
+    dmc_env = env.unwrapped.dmc_env
 
-    action_callable = create_demonstation_policy(dmc_env)
+    action_callable = dmc_env.task.create_demonstration_policy(dmc_env)
     import datetime
 
     id = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -329,9 +329,9 @@ if __name__ == "__main__":
         env,
         Path(__file__).parent / "dataset" / f"{id}",
         "point_reach",
-        round(1 / env.dmc_env.control_timestep()),
+        round(1 / env.unwrapped.dmc_env.control_timestep()),
         use_videos=False,
     )
-    collect_demonstrations(action_callable, env, dataset_recorder)
+    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder)
     # set MUJOCO_GL=egl to run this on a remote machine
     # collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)
