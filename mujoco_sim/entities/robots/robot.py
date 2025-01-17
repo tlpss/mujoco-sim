@@ -40,7 +40,7 @@ class AnalyticURIKsolver(IKSolver):
 
 class Robot(composer.Entity):
     """
-    position-controlled Robot base class
+    position-controlled Robot base class that mimics the UR control API (moveL, moveJ, servoL, servoJ)
     """
 
     _MODEL_XML_PATH = None
@@ -77,6 +77,10 @@ class Robot(composer.Entity):
         self.base_element = self._model.find("body", self._BASE_BODY_NAME)
         self.flange: mjcf.Element = self._model.find("site", self._FLANGE_SITE_NAME)
 
+        # enable gravity compensation
+        for body in self._model.find_all("body"):
+            body.gravcomp = 1.0
+
     def attach_end_effector(self, end_effector: EEF):
 
         # expand keyframe of the robot arm to account for the new DoFs
@@ -111,8 +115,10 @@ class Robot(composer.Entity):
     ) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
         q_guess = current_joints if current_joints is not None else self.home_joint_positions
-        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)[0]
-        return joint_config
+        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)
+        if joint_config is None:
+            return None
+        return joint_config[0]
 
     def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
         return self.get_joint_positions_from_tcp_pose(tcp_pose) is not None
@@ -286,6 +292,10 @@ class RobotObservables(composer.Observables):
     @composer.observable
     def tcp_position(self):
         return observable.Generic(lambda physics: self._entity.get_tcp_pose(physics)[:3])
+
+    @composer.observable
+    def joint_configuration(self):
+        return observable.Generic(self._entity.get_joint_positions)
 
 
 class UR5e(Robot):

@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import gymnasium
+import pygame
 import torch
 
 
@@ -316,6 +317,7 @@ if __name__ == "__main__":
     from mujoco_sim.environments.tasks.point_reach import create_demonstation_policy
 
     env = gymnasium.make("mujoco_sim/point_mass_reach-v0")
+
     dmc_env = env.dmc_env
 
     action_callable = create_demonstation_policy(dmc_env)
