@@ -313,8 +313,7 @@ def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n
 
 if __name__ == "__main__":
     # import pygame
-    import mujoco_sim # noqa
-
+    import mujoco_sim  # noqa
 
     env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0")
 
@@ -332,6 +331,6 @@ if __name__ == "__main__":
         round(1 / env.unwrapped.dmc_env.control_timestep()),
         use_videos=False,
     )
-    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder)
+    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=100)
     # set MUJOCO_GL=egl to run this on a remote machine
     # collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)

@@ -13,8 +13,10 @@ jobs:
         with:
           environment-file: environment.yaml
           cache-environment: false
-      - name: install mesa with conda
-        run: conda install -c conda-forge mesalib
+      - name: Install Mesa
+        run: |
+          sudo apt update
+          sudo apt install mesa-common-dev
       - name: Conda list
         shell: bash -l {0}
         run: conda list
