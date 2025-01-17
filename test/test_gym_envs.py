@@ -14,4 +14,3 @@ def test_env_w_random_policy(env_id):
     while not done:
         obs, reward, term, trunc, info = env.step(action_policy(obs))
         done = term or trunc
-        env.render()

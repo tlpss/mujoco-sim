@@ -19,4 +19,5 @@ jobs:
       - name: pytest
         shell: bash -l {0}
         run: |
-          pytest .
+          export MUJOCO_GL=egl 
+          pytest test/
