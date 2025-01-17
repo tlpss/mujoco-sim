@@ -13,11 +13,13 @@ jobs:
         with:
           environment-file: environment.yaml
           cache-environment: false
+      - name: install mesa with conda
+        run: conda install -c conda-forge mesalib
       - name: Conda list
         shell: bash -l {0}
         run: conda list
       - name: pytest
         shell: bash -l {0}
         run: |
-          export MUJOCO_GL=egl 
+          export MUJOCO_GL=egl
           pytest test/
