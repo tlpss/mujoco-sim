@@ -10,6 +10,7 @@ Action space is either target TCP poses or target joint configurations
 The task is solved if the distance between the robot's end effector and the target is less than a threshold
 
 """
+
 from __future__ import annotations
 
 import dataclasses

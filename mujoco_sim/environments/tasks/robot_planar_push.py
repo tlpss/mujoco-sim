@@ -3,6 +3,7 @@ This task is a simple planar push task
  where the robot has to push a (number of) blocks to a target location.
 Planar in the sense that the robot only controls the xy position of the end effector.
 """
+
 from __future__ import annotations
 
 import dataclasses

@@ -12,7 +12,7 @@ jobs:
         uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: environment.yaml
-          cache-environment: true
+          cache-environment: false
       - name: Conda list
         shell: bash -l {0}
         run: conda list
