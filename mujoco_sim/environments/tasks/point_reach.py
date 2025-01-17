@@ -1,5 +1,5 @@
 import numpy as np
-from dm_control import composer
+from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 from dm_env import specs
 
@@ -54,6 +54,9 @@ class PointMassReachTask(composer.Task):
     cf. Kevin Zakka's RoboPianist for a well-coded example of how to create RL envs with dm_control
     https://github.com/google-research/robopianist/tree/main/robopianist
     """
+
+    MAX_CONTROL_STEPS_PER_EPISODE = MAX_CONTROL_STEPS_PER_EPISODE
+    CONTROL_TIMESTEP = CONTROL_TIMESTEP
 
     def __init__(
         self,
@@ -183,23 +186,20 @@ class PointMassReachTask(composer.Task):
         else:
             raise ValueError("reward type not known?")
 
-    def _max_time_exceeded(self, physics):
-        return physics.data.time >= MAX_CONTROL_STEPS_PER_EPISODE * CONTROL_TIMESTEP
-
-
     def should_terminate_episode(self, physics):
-        # time limit violations (truncations) for finite formulations if infinite horizon task 
-        # or terminal states (goal reached or invalid states, e.g. collisions)
-        return self.is_goal_reached(physics) or self._max_time_exceeded(physics)
+        # time limit violations (truncations) for finite formulations if infinite horizon task are not handled here!
+        # they are handled in the environment (using the MAX_CONTROL_STEPS_PER_EPISODE)
+        # only terminal states (goal reached or invalid states, e.g. collisions)
+        return self.is_goal_reached(physics)
 
     def is_goal_reached(self, physics):
         return self.distance_to_target < GOAL_DISTANCE_THRESHOLD
-    
+
     def get_discount(self, physics):
-        # feature of DM env that is not used in Gymnasium Env.. 
+        # feature of DM env that is not used in Gymnasium Env..
         if self.is_goal_reached(physics):
-            return 0.0 
-        return 1.0  
+            return 0.0
+        return 1.0
 
     def action_spec(self, physics):
         del physics
@@ -215,32 +215,28 @@ class PointMassReachTask(composer.Task):
     def task_observables(self):
         return {name: obs for (name, obs) in self._task_observables.items() if obs.enabled}
 
+    def create_random_policy(self):
+        physics = mjcf.Physics.from_mjcf_model(self._arena.mjcf_model)
+        spec = self.action_spec(physics)
 
-def create_random_policy(environment: composer.Environment):
-    spec = environment.action_spec()
-    environment.observation_spec()
+        def random_policy(time_step):
+            return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
 
-    def random_policy(time_step):
-        return np.random.uniform(spec.minimum, spec.maximum, spec.shape)
+        return random_policy
 
-    return random_policy
+    def create_demonstation_policy(self, noise: float = 0.0):
+        def policy(time_step):
+            current_position = self.pointmass.get_position(environment.physics)
+            target_position = self._goal_position(environment.physics)
 
+            action = target_position - current_position
+            if noise > 0:
+                action *= 1 + np.random.normal(0, noise, action.shape)
+            action *= 1 / np.max(np.abs(action)) * MAX_STEP_SIZE
 
-def create_demonstation_policy(environment: composer.Environment, noise: float = 0.0):
-    assert isinstance(environment.task, PointMassReachTask)
+            return action
 
-    def policy(time_step):
-        current_position = environment.task.pointmass.get_position(environment.physics)
-        target_position = environment.task._goal_position(environment.physics)
-
-        action = target_position - current_position
-        if noise > 0:
-            action *= 1 + np.random.normal(0, noise, action.shape)
-        action *= 1 / np.max(np.abs(action)) * MAX_STEP_SIZE
-
-        return action
-
-    return policy
+        return policy
 
 
 if __name__ == "__main__":
@@ -259,4 +255,4 @@ if __name__ == "__main__":
     # import matplotlib.pyplot as plt
     # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
 
-    viewer.launch(environment, policy=create_demonstation_policy(environment, noise=0))
+    viewer.launch(environment, policy=task.create_demonstation_policy(noise=0))

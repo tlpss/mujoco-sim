@@ -32,10 +32,10 @@ def _convert_specs_to_flattened_box(spec: List[specs.Array], dtype: np.dtype) ->
     def extract_min_max(s):
         assert s.dtype == np.float64 or s.dtype == np.float32
         dim = np.int32(np.prod(s.shape))  # np.numel would be cleaner?
-        if type(s) == specs.Array:
+        if isinstance(s, specs.Array):
             bound = np.inf * np.ones(dim, dtype=dtype)
             return -bound, bound
-        elif type(s) == specs.BoundedArray:
+        elif isinstance(s, specs.BoundedArray):
             zeros = np.zeros(dim, dtype=dtype)
             return s.minimum + zeros, s.maximum + zeros
 
@@ -54,10 +54,10 @@ def _convert_specs_to_flattened_box(spec: List[specs.Array], dtype: np.dtype) ->
 
 def convert_spec_to_box(s):
     dim = s.shape
-    if type(s) == specs.Array:
+    if isinstance(s, specs.Array):
         bound = np.inf * np.ones(dim, dtype=s.dtype)
         low, high = -bound, bound
-    elif type(s) == specs.BoundedArray:
+    if isinstance(s, specs.BoundedArray):
         zeros = np.zeros(dim, dtype=s.dtype)
         low, high = s.minimum + zeros, s.maximum + zeros
     return spaces.Box(low, high, dtype=s.dtype)
@@ -88,7 +88,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         self.render_dims = render_dims
         self._env = env
         self._action_space = _convert_specs_to_flattened_box([self._env.action_spec()], np.float32)
-        
+
         # create observation space
         if flatten_observation_space:
             self._observation_space = _convert_specs_to_flattened_box(
@@ -136,31 +136,30 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         time_step = self._env.step(action)
         reward = time_step.reward
         obs = self._get_obs(time_step)
-        # truncated = finite-horizon formulation timeout of inifite task
+        # truncated = finite-horizon formulation timeout of infinite task
         # env signals stop but agent should bootstrap from next_obs so discount > 0
         # as this is not a true terminal state
         # cf https://arxiv.org/pdf/1712.00378.pdf
-        
-        truncated = time_step.last() and not self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
-        terminated = time_step.last() and self.dmc_env.task.should_terminate_episode(self.dmc_env.physics)
 
+        truncated = time_step.last() and time_step.discount > 0
+        terminated = time_step.last() and time_step.discount == 0
 
-         # check for succcess and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
+        # check for success and add it toinfo dict, to please Lerobot which expects the 'is_success' key in the info dict
         # check if method "is_goal_reached" exists in the env
         if hasattr(self._env.task, "is_goal_reached"):
             info["is_success"] = self._env.task.is_goal_reached(self._env.physics) * 1.0
-        
+
         # log discount as it is not passed explicitly in gym env
         info["discount"] = time_step.discount
 
         return obs, reward, terminated, truncated, info
 
-    def reset(self,seed:int = None):
+    def reset(self, seed: int = None, options: dict = None):
         if seed is not None:
             self.seed(seed)
         time_step = self._env.reset()
         obs = self._get_obs(time_step)
-        info = {} #new gym API requires info in reset as well.
+        info = {}  # new gym API requires info in reset as well.
         return obs, info
 
     def render(self, mode="rgb_array"):
@@ -176,16 +175,20 @@ if __name__ == "__main__":
 
     from dm_control.composer import Environment
 
-    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask, create_demonstation_policy
+    from mujoco_sim.environments.tasks.point_reach import PointMassReachTask
 
     task = PointMassReachTask()
-    env = Environment(task, strip_singleton_obs_buffer_dim=True)
+    env = Environment(
+        task,
+        strip_singleton_obs_buffer_dim=True,
+        time_limit=PointMassReachTask.MAX_CONTROL_STEPS_PER_EPISODE * PointMassReachTask.CONTROL_TIMESTEP,
+    )
     print(env.action_spec())
     print(env.observation_spec())
     gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
     print(f"{gym_env.observation_space=}")
     print(f"{gym_env.action_space=}")
-    obs,info = gym_env.reset()
+    obs, info = gym_env.reset()
     print(f"{obs=}")
     obs, reward, terminated, truncated, info = gym_env.step(gym_env.action_space.sample())
     done = terminated or truncated
@@ -200,7 +203,8 @@ if __name__ == "__main__":
     plt.imshow(img)
     plt.show()
 
-    policy = create_demonstation_policy(env)
+    print(env._time_limit)
+    policy = env.task.create_random_policy()
     done = False
     obs = gym_env.reset()
     while not done:

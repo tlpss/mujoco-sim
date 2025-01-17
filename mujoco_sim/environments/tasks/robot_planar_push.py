@@ -3,6 +3,7 @@ This task is a simple planar push task
  where the robot has to push a (number of) blocks to a target location.
 Planar in the sense that the robot only controls the xy position of the end effector.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -48,8 +49,8 @@ class RobotPushConfig(TaskConfig):
     # timestep is main driver of simulation speed..
     # higher steps start to result in unstable physics
     physics_timestep: float = 0.005  # MJC default =0.002 (500Hz)
-    control_timestep: float = 0.5
-    max_control_steps_per_episode: int = 100
+    control_timestep: float = 0.1
+    max_control_steps_per_episode: int = 500
     goal_distance_threshold: float = 0.02  # task solved if dst(point,goal) < threshold
     image_resolution: int = 64
 
@@ -98,10 +99,10 @@ class RobotPushTask(RobotTask):
         )
 
         # create robot workspace and all the spawn spaces
-        self.robot_workspace = EuclideanSpace((-0.10, 0.10), (-0.6, -0.4), (0.03, 0.015))
-        self.robot_spawn_space = EuclideanSpace((-0.05, 0.05), (-0.55, -0.45), (0.02, 0.02))
-        self.object_spawn_space = EuclideanSpace((-0.05, 0.05), (-0.55, -0.45), (0.05, 0.2))
-        self.target_spawn_space = EuclideanSpace((-0.01, 0.01), (-0.55, -0.45), (0.001, 0.005))
+        self.robot_workspace = EuclideanSpace((-0.2, 0.2), (-0.6, -0.3), (0.03, 0.015))
+        self.robot_spawn_space = EuclideanSpace((-0.2, 0.2), (-0.6, -0.3), (0.02, 0.02))
+        self.object_spawn_space = EuclideanSpace((-0.15, 0.15), (-0.55, -0.35), (0.05, 0.2))
+        self.target_spawn_space = EuclideanSpace((-0.15, 0.15), (-0.55, -0.35), (0.001, 0.005))
 
         # for debugging camera views etc: add workspace to scene
         # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
@@ -138,6 +139,7 @@ class RobotPushTask(RobotTask):
 
         elif self.config.observation_type == RobotPushConfig.VISUAL_OBS:
             self.camera.observables.rgb_image.enabled = True
+            self.robot.observables.tcp_position.enabled = True
 
     def initialize_episode_mjcf(self, random_state):
         for object in self.objects:
@@ -192,14 +194,10 @@ class RobotPushTask(RobotTask):
             return
         assert action.shape == (2,)
 
-        # scale action to max step size
-        action *= self.config.max_step_size
-        self.config
-
-        current_position = self.robot.get_tcp_pose(physics)[:3]
-        target_position = np.copy(current_position)
-        target_position[:2] += action
-        target_position = self.robot_workspace.clip_to_space(target_position)
+        target_position = np.zeros((3,))
+        target_position[:2] = action
+        target_position[2] = 0.02  # keep z position constant
+        # target_position = self.robot_workspace.clip_to_space(target_position)
         self.robot.servoL(physics, np.concatenate([target_position, TOP_DOWN_QUATERNION]), self.control_timestep)
 
     def get_reward(self, physics):
@@ -239,6 +237,9 @@ class RobotPushTask(RobotTask):
         distances = self._get_object_distances_to_target(physics)
         return all([distance < self.config.target_radius for distance in distances])
 
+    def should_terminate_episode(self, physics):
+        return self.is_task_accomplished(physics) or self.current_step >= self.config.max_control_steps_per_episode
+
 
 def create_random_policy(environment: composer.Environment):
     spec = environment.action_spec()
@@ -252,24 +253,62 @@ def create_random_policy(environment: composer.Environment):
     return random_policy
 
 
-def create_keyboard_policy(environment: composer.Environment):
-    def policy(time_step):
-        print(time_step.reward)
-        keyboard = input("input")
-        if keyboard == "i":
-            return np.array([0, 0.5])
-        if keyboard == "k":
-            return np.array([0, -0.5])
-        if keyboard == "j":
-            return np.array([-0.5, 0])
-        if keyboard == "l":
-            return np.array([0.5, 0])
+import sys
+import termios
+import tty
 
-    return policy
+import click
+
+
+def getch():
+    """
+    Get a single character from the terminal, wait for 0.01s before releasing the keyboard if no key is pressed.
+    """
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+
+def print_keyboard_options():
+    click.secho("\n       Keyboard Controls:", fg="yellow")
+    click.secho("=====================================", fg="yellow")
+    print("W / A /S / D : Move BASE")
+    print("U / J / H / K : Move LIFT & ARM")
+    print("N / M : Open & Close GRIPPER")
+    print("Q : Stop")
+    click.secho("=====================================", fg="yellow")
+
+
+def create_demonstration_policy(environment: composer.Environment):
+    def demonstration_policy(time_step):
+
+        print_keyboard_options()
+        key = getch().lower()
+
+        # use arrows to control the robot
+
+        if key == "j":
+            eef_action = np.array([0.0, 0.1])
+        elif key == "l":
+            eef_action = np.array([0.0, -0.1])
+        elif key == "i":
+            eef_action = np.array([0.1, 0.0])
+        elif key == "k":
+            eef_action = np.array([-0.1, 0.0])
+        else:
+            eef_action = np.array([0.0, 0.0])
+        return eef_action
+
+    return demonstration_policy
 
 
 if __name__ == "__main__":
-    from dm_control import viewer
     from dm_control.composer import Environment
 
     task = RobotPushTask(
@@ -283,11 +322,32 @@ if __name__ == "__main__":
     # plt.show()
     print(environment.action_spec())
     print(environment.observation_spec())
-    # print(environment.step(None))
-    # write_xml(task._arena.mjcf_model)
-    img = task.camera.get_rgb_image(environment.physics)
+    print(timestep.observation)
 
-    # import matplotlib.pyplot as plt
-    # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
+    # viewer.launch(environment, policy=create_demonstration_policy(environment))
 
-    viewer.launch(environment, policy=create_random_policy(environment))
+    environment.reset()
+    done = False
+    import cv2
+
+    window = cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+    while not done:
+        img = environment.physics.render(camera_id=0)
+        cv2.imshow("image", img)
+        key = cv2.waitKey(0)
+        action = environment.task.robot.get_tcp_pose(environment.physics)[:2]
+
+        if key == ord("j"):
+            action += np.array([0.0, 0.05])
+        elif key == ord("l"):
+            action += np.array([0.0, -0.05])
+        elif key == ord("i"):
+            action += np.array([0.05, 0.0])
+        elif key == ord("k"):
+            action += np.array([-0.05, 0.0])
+        elif key == ord("q"):
+            break
+        timestep = environment.step(action)
+        done = timestep.last()
+
+    # mouse position on the viewer

@@ -15,4 +15,3 @@ dependencies:
     - pytest
     - pre-commit
     - -e .
-    - -e lerobot/

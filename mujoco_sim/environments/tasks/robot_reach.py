@@ -10,6 +10,7 @@ Action space is either target TCP poses or target joint configurations
 The task is solved if the distance between the robot's end effector and the target is less than a threshold
 
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -23,7 +24,7 @@ from mujoco_sim.entities.arenas import EmptyRobotArena
 from mujoco_sim.entities.camera import Camera, CameraConfig
 from mujoco_sim.entities.eef.gripper import Robotiq2f85
 from mujoco_sim.entities.robots.robot import UR5e
-from mujoco_sim.environments.tasks.base import RobotTask, TaskConfig
+from mujoco_sim.environments.tasks.base import TaskConfig
 from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
@@ -81,10 +82,10 @@ class RobotReachConfig(TaskConfig):
         assert self.action_type in RobotReachConfig.ACTION_TYPES
 
 
-class RobotReachTask(RobotTask):
+class RobotReachTask(composer.Task):
     def __init__(self, config: RobotReachConfig) -> None:
-        super().__init__(config)
-        self.config: RobotReachConfig  # noqa
+        super().__init__()
+        self.config: RobotReachConfig = config
 
         # create arena, robot and EEF
         self._arena = EmptyRobotArena(3)
@@ -147,8 +148,9 @@ class RobotReachTask(RobotTask):
         self.robot.set_tcp_pose(physics, robot_initial_pose)
         target_position = self.target_spawn_space.sample()
         physics.bind(self.target).pos = target_position
-        print(f"target position: {target_position}")
-        print(self.goal_position_observable(physics))
+
+        # print(f"target position: {target_position}")
+        # print(self.goal_position_observable(physics))
 
     @property
     def root_entity(self):
@@ -160,7 +162,6 @@ class RobotReachTask(RobotTask):
         Args:
             action (_type_): [-1,1] x action_dim
         """
-        super().before_step(physics, action, random_state)
         if action is None:
             return
         assert action.shape == (3,)
@@ -222,13 +223,16 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
     def demonstration_policy(time_step: composer.TimeStep):
 
         assert isinstance(environment.task, RobotReachTask)
+        assert (
+            environment.task.config.action_type == RobotReachConfig.ABS_EEF_ACTION
+        ), "only implemented demonstrator for EEF actions for now"
         # get the current physics state
         physics = environment.physics
         # get the current robot pose
-        robot_pose = environment.task.robot.get_tcp_pose(physics)
+        robot_pose = environment.task.robot.get_tcp_pose(physics).copy()
 
         # get the current target pose
-        target_pose = physics.bind(environment.task.target).xpos
+        target_pose = physics.bind(environment.task.target).xpos.copy()
 
         print("robot pose", robot_pose)
         print("target pose", target_pose)
@@ -240,8 +244,10 @@ def create_demonstration_policy(environment: composer.Environment, noise_level=0
         difference += np.random.normal(0, noise_level, size=3)
 
         # move at most 0.5m/s
-        difference = difference * 0.5 / np.max(np.abs(difference)) * environment.control_timestep()
+        if np.max(np.abs(difference)) > 0.5:
+            difference = difference * 0.5 / np.max(np.abs(difference)) * environment.control_timestep()
         action = robot_pose[:3] + difference
+        # action = np.array([0.2,-0.2,0.2])
         return action
 
     return demonstration_policy
@@ -259,6 +265,8 @@ if __name__ == "__main__":
 
     environment = Environment(task, strip_singleton_obs_buffer_dim=True)
     timestep = environment.reset()
+
+    print(timestep.observation)
 
     # plt.imshow(timestep.observation["Camera/rgb_image"])
     # plt.show()

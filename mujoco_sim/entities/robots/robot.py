@@ -40,7 +40,7 @@ class AnalyticURIKsolver(IKSolver):
 
 class Robot(composer.Entity):
     """
-    position-controlled Robot base class
+    position-controlled Robot base class that mimics the UR control API (moveL, moveJ, servoL, servoJ)
     """
 
     _MODEL_XML_PATH = None
@@ -77,6 +77,10 @@ class Robot(composer.Entity):
         self.base_element = self._model.find("body", self._BASE_BODY_NAME)
         self.flange: mjcf.Element = self._model.find("site", self._FLANGE_SITE_NAME)
 
+        # enable gravity compensation
+        for body in self._model.find_all("body"):
+            body.gravcomp = 1.0
+
     def attach_end_effector(self, end_effector: EEF):
 
         # expand keyframe of the robot arm to account for the new DoFs
@@ -106,10 +110,15 @@ class Robot(composer.Entity):
     def mjcf_model(self):
         return self._model
 
-    def get_joint_positions_from_tcp_pose(self, tcp_pose: POSE_TYPE) -> Optional[JOINT_CONFIGURATION_TYPE]:
+    def get_joint_positions_from_tcp_pose(
+        self, tcp_pose: POSE_TYPE, current_joints=None
+    ) -> Optional[JOINT_CONFIGURATION_TYPE]:
         flange_pose = self._get_flange_pose_from_tcp_pose(tcp_pose)
-        joint_config = self.ik_solver.solve_ik(flange_pose, self.home_joint_positions)
-        return joint_config
+        q_guess = current_joints if current_joints is not None else self.home_joint_positions
+        joint_config = self.ik_solver.solve_ik(flange_pose, q_guess)
+        if joint_config is None:
+            return None
+        return joint_config[0]
 
     def is_pose_reachable(self, tcp_pose: POSE_TYPE) -> bool:
         return self.get_joint_positions_from_tcp_pose(tcp_pose) is not None
@@ -165,7 +174,8 @@ class Robot(composer.Entity):
         self.joint_trajectory = None
 
     def set_tcp_pose(self, physics: mjcf.Physics, pose: np.ndarray):
-        joint_positions = self.get_joint_positions_from_tcp_pose(pose)
+        current_joints = self.get_joint_positions(physics)
+        joint_positions = self.get_joint_positions_from_tcp_pose(pose, current_joints)
         if joint_positions is not None:
             self.set_joint_positions(physics, joint_positions)
         else:
@@ -186,8 +196,8 @@ class Robot(composer.Entity):
     def movej_IK(self, physics: mjcf.Physics, tcp_pose: np.ndarray, speed: float):
         if speed > self.max_joint_speed:
             print(f"required joint speed {speed} is too high for this robot.")
-
-        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        current_joint_positions = self.get_joint_positions(physics)
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose, current_joint_positions)
         if target_joint_positions is None:
             # TODO : log IK failed
             print("IK failed")
@@ -206,7 +216,8 @@ class Robot(composer.Entity):
         self.joint_trajectory = trajectory
 
     def servoL(self, physics: mjcf.Physics, tcp_pose: np.ndarray, time: float):
-        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose)
+        current_joint_positions = self.get_joint_positions(physics)
+        target_joint_positions = self.get_joint_positions_from_tcp_pose(tcp_pose, current_joint_positions)
         if target_joint_positions is None:
             # failsafe for IK solver not finding a solution
             print("IK failed")
@@ -281,6 +292,10 @@ class RobotObservables(composer.Observables):
     @composer.observable
     def tcp_position(self):
         return observable.Generic(lambda physics: self._entity.get_tcp_pose(physics)[:3])
+
+    @composer.observable
+    def joint_configuration(self):
+        return observable.Generic(self._entity.get_joint_positions)
 
 
 class UR5e(Robot):
