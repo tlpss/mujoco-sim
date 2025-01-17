@@ -184,9 +184,9 @@ class RobotPushButtonTask(composer.Task):
         # if the button is active, with some probability make it inactive
         if self.button_disturbances:
             if (
-                self.switch.is_active and random_state.rand() < 0.01
+                self.switch.is_active and not self.switch._is_pressed and random_state.rand() < 0.01
             ):  # (0.99)**30 = 0.74 probability to reach end pose before disturbance.
-                self.switch.set_active(physics, False)
+                self.switch.deactivate(physics)
         return super().after_step(physics, random_state)
 
     def get_reward(self, physics):
@@ -358,4 +358,4 @@ if __name__ == "__main__":
     # plt.imshow(img)
     # plt.show()
 
-    viewer.launch(environment, policy=task.create_demonstration_policy())
+    viewer.launch(environment, policy=task.create_demonstration_policy(environment))

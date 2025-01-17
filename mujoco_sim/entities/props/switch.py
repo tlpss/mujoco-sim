@@ -64,6 +64,10 @@ class Switch(composer.Entity):
         self._is_active = False
         self._update_activation(physics)
 
+    def deactivate(self, physics):
+        self._is_active = False
+        physics.bind(self._button_geom).rgba = [1, 0, 0, 1]
+
     def after_substep(self, physics, random_state):
         self._update_activation(physics)
 

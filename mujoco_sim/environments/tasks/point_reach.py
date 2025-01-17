@@ -224,8 +224,9 @@ class PointMassReachTask(composer.Task):
 
         return random_policy
 
-    def create_demonstation_policy(self,physics, noise: float = 0.0):
+    def create_demonstation_policy(self, environment, noise: float = 0.0):
         def policy(time_step):
+            physics = environment.physics
             current_position = self.pointmass.get_position(physics)
             target_position = self._goal_position(physics)
 
@@ -255,4 +256,4 @@ if __name__ == "__main__":
     # import matplotlib.pyplot as plt
     # plt.imsave("test.png", timestep.observation["Camera/rgb_image"])
 
-    viewer.launch(environment, policy=task.create_demonstation_policy(noise=0))
+    viewer.launch(environment, policy=task.create_demonstation_policy(environment, noise=0))
