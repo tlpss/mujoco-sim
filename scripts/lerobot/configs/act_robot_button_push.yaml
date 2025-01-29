@@ -3,52 +3,139 @@ fps: 10
 
 env:
   name: mujoco_sim
-  task: point_mass_reach-v0
-  image_size: 64
-  state_dim: 2
-  action_dim: 2
+  task: robot_push_button_visual-v0
+  image_size: 96
+  state_dim: 6
+  action_dim: 7
   fps: ${fps}
-  episode_length: 50
+  episode_length: 100
 
 ## policy & training
 
 
 seed: 2024
-dataset_repo_id: point_mass_reach/v2
+dataset_repo_id: robot_button_push/v1
 
 override_dataset_stats:
   observation.images.Camera_rgb_image:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
+  observation.images.ur5e_WristCamera_rgb_image:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
 
+eval:
+  n_episodes: 50
+  batch_size: 50
+  use_async_envs: false
+
+
+# See `configuration_act.py` for more details.
+policy:
+  name: act
+
+  # Input / output structure.
+  n_obs_steps: 1
+  chunk_size: 16 # chunk_size
+  n_action_steps: 8
+
+  input_shapes:
+    # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
+    observation.images.Camera_rgb_image: [3, 96,96]
+    observation.images.ur5e_WristCamera_rgb_image: [3, 96,96]
+    observation.state: ["${env.state_dim}"]
+  output_shapes:
+    action: ["${env.action_dim}"]
+
+  # Normalization / Unnormalization
+  input_normalization_modes:
+    observation.images.Camera_rgb_image: mean_std
+    observation.images.ur5e_WristCamera_rgb_image: mean_std
+    observation.state: mean_std
+  output_normalization_modes:
+    action: mean_std
+
+  # Architecture.
+  # Vision backbone.
+  vision_backbone: resnet18
+  pretrained_backbone_weights: ResNet18_Weights.IMAGENET1K_V1
+  replace_final_stride_with_dilation: false
+  # Transformer layers.
+  pre_norm: false
+  dim_model: 128
+  n_heads: 4
+  dim_feedforward: 256
+  feedforward_activation: relu
+  n_encoder_layers: 4
+  # Note: Although the original ACT implementation has 7 for `n_decoder_layers`, there is a bug in the code
+  # that means only the first layer is used. Here we match the original implementation by setting this to 1.
+  # See this issue https://github.com/tonyzhaozh/act/issues/25#issue-2258740521.
+  n_decoder_layers: 1
+  # VAE.
+  use_vae: true
+  latent_dim: 32
+  n_vae_encoder_layers: 4
+
+  # Inference.
+  temporal_ensemble_coeff: null
+
+  # Training and loss computation.
+  dropout: 0.1
+  kl_weight: 10.0
+
+
+hydra:
+  run:
+    # Set `dir` to where you would like to save all of the run outputs. If you run another training session
+    # with the same value for `dir` its contents will be overwritten unless you set `resume` to true.
+    dir: outputs/train/${now:%Y-%m-%d}/${now:%H-%M-%S}_${env.name}_${policy.name}_${hydra.job.name}
+  job:
+    name: default
+
+# Set `resume` to true to resume a previous run. In order for this to work, you will need to make sure
+# `hydra.run.dir` is the directory of an existing run with at least one checkpoint in it.
+# Note that when resuming a run, the default behavior is to use the configuration from the checkpoint,
+# regardless of what's provided with the training command at the time of resumption.
+resume: false
+device: cuda  # cpu
+# `use_amp` determines whether to use Automatic Mixed Precision (AMP) for training and evaluation. With AMP,
+# automatic gradient scaling is used.
+use_amp: false
+# `seed` is used for training (eg: model initialization, dataset shuffling)
+# AND for the evaluation environments.
+# You may provide a list of datasets here. `train.py` creates them all and concatenates them. Note: only data
+# keys common between the datasets are kept. Each dataset gets and additional transform that inserts the
+# "dataset_index" into the returned item. The index mapping is made according to the order in which the
+# datsets are provided.
+video_backend: pyav
+
+
+wandb:
+  enable: true
+  # Set to true to disable saving an artifact despite save_checkpoint == True
+  disable_artifact: true
+  project: lerobot
+  notes: ""
 
 training:
-  offline_steps: 100000
+  offline_steps: 40000
   online_steps: 0
-  eval_freq: 1000
-  save_freq: 25000
   log_freq: 200
+  eval_freq: 2000
+  save_freq: 20000
   save_checkpoint: false
 
-  batch_size: 64
+  batch_size: 32
+  lr: 3e-5
+  lr_backbone: 3e-5
+  weight_decay: 1e-4
   grad_clip_norm: 10
-  lr: 1.0e-4
-  lr_scheduler: cosine
-  lr_warmup_steps: 500
-  adam_betas: [0.95, 0.999]
-  adam_eps: 1.0e-8
-  adam_weight_decay: 1.0e-6
   online_steps_between_rollouts: 1
 
   delta_timestamps:
-    observation.images.Camera_rgb_image: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
-    observation.state: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
-    action: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1 - ${policy.n_obs_steps} + ${policy.horizon})]"
-
-  # The original implementation doesn't sample frames for the last 7 steps,
-  # which avoids excessive padding and leads to improved training results.
-  drop_n_last_frames: 3  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
+    action: "[i / ${fps} for i in range(${policy.chunk_size})]"
 
 
   # Number of workers for the offline training dataloader.
@@ -125,97 +212,5 @@ training:
     sharpness:
       weight: 1
       min_max: [0.8, 1.2]
-eval:
-  n_episodes: 50
-  batch_size: 50
-  use_async_envs: false
-
-policy:
-  name: diffusion
-
-  # Input / output structure.
-  n_obs_steps: 1
-  horizon: 4
-  n_action_steps: 2
-
-  input_shapes:
-    # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.images.Camera_rgb_image: [3, 64,64]
-    observation.state: ["${env.state_dim}"]
-  output_shapes:
-    action: ["${env.action_dim}"]
-
-  # Normalization / Unnormalization
-  input_normalization_modes:
-    observation.images.Camera_rgb_image: mean_std
-    observation.state: min_max
-  output_normalization_modes:
-    action: min_max
-
-  # Architecture / modeling.
-  # Vision backbone.
-  vision_backbone: resnet18
-  crop_shape: [64, 64]
-  crop_is_random: True
-  pretrained_backbone_weights: null
-  use_group_norm: True
-  spatial_softmax_num_keypoints: 32
-  # Unet.
-  down_dims: [128, 256]
-  kernel_size: 3
-  n_groups: 4
-  diffusion_step_embed_dim: 64
-  use_film_scale_modulation: True
-  # Noise scheduler.
-  noise_scheduler_type: DDPM
-  num_train_timesteps: 100
-  beta_schedule: squaredcos_cap_v2
-  beta_start: 0.0001
-  beta_end: 0.02
-  prediction_type: epsilon # epsilon / sample
-  clip_sample: True
-  clip_sample_range: 1.0
-
-  # Inference
-  num_inference_steps: null  # if not provided, defaults to `num_train_timesteps`
-
-  # Loss computation
-  do_mask_loss_for_padding: false
-
-
-
-hydra:
-  run:
-    # Set `dir` to where you would like to save all of the run outputs. If you run another training session
-    # with the same value for `dir` its contents will be overwritten unless you set `resume` to true.
-    dir: outputs/train/${now:%Y-%m-%d}/${now:%H-%M-%S}_${env.name}_${policy.name}_${hydra.job.name}
-  job:
-    name: default
-
-# Set `resume` to true to resume a previous run. In order for this to work, you will need to make sure
-# `hydra.run.dir` is the directory of an existing run with at least one checkpoint in it.
-# Note that when resuming a run, the default behavior is to use the configuration from the checkpoint,
-# regardless of what's provided with the training command at the time of resumption.
-resume: false
-device: cuda  # cpu
-# `use_amp` determines whether to use Automatic Mixed Precision (AMP) for training and evaluation. With AMP,
-# automatic gradient scaling is used.
-use_amp: false
-# `seed` is used for training (eg: model initialization, dataset shuffling)
-# AND for the evaluation environments.
-# You may provide a list of datasets here. `train.py` creates them all and concatenates them. Note: only data
-# keys common between the datasets are kept. Each dataset gets and additional transform that inserts the
-# "dataset_index" into the returned item. The index mapping is made according to the order in which the
-# datsets are provided.
-video_backend: pyav
-
-
-wandb:
-  enable: true
-  # Set to true to disable saving an artifact despite save_checkpoint == True
-  disable_artifact: true
-  project: lerobot
-  notes: ""
-
 
 

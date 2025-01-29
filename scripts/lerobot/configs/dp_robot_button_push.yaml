@@ -3,30 +3,33 @@ fps: 10
 
 env:
   name: mujoco_sim
-  task: point_mass_reach-v0
-  image_size: 64
-  state_dim: 2
-  action_dim: 2
+  task: robot_push_button_visual-v0
+  image_size: 96
+  state_dim: 6
+  action_dim: 7
   fps: ${fps}
-  episode_length: 50
+  episode_length: 100
 
 ## policy & training
 
 
 seed: 2024
-dataset_repo_id: point_mass_reach/v2
+dataset_repo_id: robot_button_push/v2
 
 override_dataset_stats:
   observation.images.Camera_rgb_image:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-
+  observation.images.ur5e_WristCamera_rgb_image:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
 
 training:
   offline_steps: 100000
   online_steps: 0
-  eval_freq: 1000
+  eval_freq: 3000
   save_freq: 25000
   log_freq: 200
   save_checkpoint: false
@@ -43,12 +46,13 @@ training:
 
   delta_timestamps:
     observation.images.Camera_rgb_image: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
+    observation.images.ur5e_WristCamera_rgb_image: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
     observation.state: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
     action: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1 - ${policy.n_obs_steps} + ${policy.horizon})]"
 
   # The original implementation doesn't sample frames for the last 7 steps,
   # which avoids excessive padding and leads to improved training results.
-  drop_n_last_frames: 3  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
+  drop_n_last_frames: 7  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
 
 
   # Number of workers for the offline training dataloader.
@@ -135,12 +139,13 @@ policy:
 
   # Input / output structure.
   n_obs_steps: 1
-  horizon: 4
-  n_action_steps: 2
+  horizon: 16
+  n_action_steps: 8
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.images.Camera_rgb_image: [3, 64,64]
+    observation.images.Camera_rgb_image: [3, 96,96]
+    observation.images.ur5e_WristCamera_rgb_image: [3, 96,96]
     observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]
@@ -148,6 +153,7 @@ policy:
   # Normalization / Unnormalization
   input_normalization_modes:
     observation.images.Camera_rgb_image: mean_std
+    observation.images.ur5e_WristCamera_rgb_image: mean_std
     observation.state: min_max
   output_normalization_modes:
     action: min_max
@@ -155,7 +161,7 @@ policy:
   # Architecture / modeling.
   # Vision backbone.
   vision_backbone: resnet18
-  crop_shape: [64, 64]
+  crop_shape: [88, 88]
   crop_is_random: True
   pretrained_backbone_weights: null
   use_group_norm: True

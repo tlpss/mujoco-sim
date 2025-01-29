@@ -187,7 +187,6 @@ class RobotPushButtonTask(composer.Task):
                 self.switch.is_active and not self.switch._is_pressed and random_state.rand() < 0.01
             ):  # (0.99)**30 = 0.74 probability to reach end pose before disturbance.
                 self.switch.deactivate(physics)
-        return super().after_step(physics, random_state)
 
     def get_reward(self, physics):
 
