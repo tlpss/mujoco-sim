@@ -6,7 +6,22 @@ from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 from dm_control.mujoco import Physics
 from dm_env import specs
+import mujoco
 
+def camera_orientation_from_look_at(position: np.ndarray, look_at: np.ndarray, up: np.ndarray):
+    forward = look_at - position
+    forward = forward / np.linalg.norm(forward)
+    right = np.cross(up, forward)
+    right = right / np.linalg.norm(right)
+    up = np.cross(forward, right)
+    up = up / np.linalg.norm(up)
+
+    rot_matrix = np.array([right, up, forward])
+    # convert to quaternion
+    quat = np.zeros(4)
+    rot_matrix = rot_matrix.flatten()
+    mujoco.mju_mat2Quat(quat, rot_matrix)
+    return quat
 
 @dataclasses.dataclass
 class CameraConfig:
@@ -114,3 +129,11 @@ class CameraObservables(composer.Observables):
         return obs
 
     # TODO: add depth map
+
+
+if __name__ == "__main__":
+    position = np.array([1, 0,0])
+    look_at = np.array([0, 0, 0])
+    up = np.array([0, 0,1])
+    quaternion = camera_orientation_from_look_at(position, look_at, up)
+    print(quaternion)
