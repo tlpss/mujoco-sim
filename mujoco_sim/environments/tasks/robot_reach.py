@@ -142,11 +142,11 @@ class RobotReachTask(composer.Task):
 
     def initialize_episode(self, physics, random_state):
         super().initialize_episode(physics, random_state)
-        robot_initial_pose = self.robot_spawn_space.sample()
+        robot_initial_pose = self.robot_spawn_space.sample(random_state)
         robot_initial_pose = np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION])
         # ŧarget position
         self.robot.set_tcp_pose(physics, robot_initial_pose)
-        target_position = self.target_spawn_space.sample()
+        target_position = self.target_spawn_space.sample(random_state)
         physics.bind(self.target).pos = target_position
 
         # print(f"target position: {target_position}")

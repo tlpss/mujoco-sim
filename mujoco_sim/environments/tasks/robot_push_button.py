@@ -19,35 +19,6 @@ from mujoco_sim.environments.tasks.spaces import EuclideanSpace
 TOP_DOWN_QUATERNION = np.array([1.0, 0.0, 0.0, 0.0])
 
 
-# @dataclasses.dataclass
-# class RobotPushButtonConfig(TaskConfig):
-#     # add these macros in the class to make it easier to use them
-#     # without having to import them separately
-
-
-#     # actual config
-#     reward_type: str = None
-#     observation_type: str = None
-#     action_type: str = None
-
-
-#     scene_camera_config: CameraConfig = None
-#     wrist_camera_config: CameraConfig = None
-
-#     def __post_init__(self):
-#         # set default values if not set
-#         # https://stackoverflow.com/questions/56665298/how-to-apply-default-value-to-python-dataclass-field-when-none-was-passed
-#         self.reward_type = self.reward_type or RobotPushButtonConfig.SPARSE_REWARD
-#         self.observation_type = self.observation_type or RobotPushButtonConfig.STATE_OBS
-#         self.action_type = self.action_type or RobotPushButtonConfig.ABS_EEF_ACTION
-#         self.scene_camera_config = self.scene_camera_config or RobotPushButtonConfig.FRONT_TILTED_CAMERA_CONFIG
-#         self.wrist_camera_config = self.wrist_camera_config or RobotPushButtonConfig.WRIST_CAMERA_CONFIG
-
-#         assert self.observation_type in RobotPushButtonConfig.OBSERVATION_TYPES
-#         assert self.reward_type in RobotPushButtonConfig.REWARD_TYPES
-#         assert self.action_type in RobotPushButtonConfig.ACTION_TYPES
-
-
 class RobotPushButtonTask(composer.Task):
     SPARSE_REWARD = "sparse_reward"
 
@@ -60,11 +31,6 @@ class RobotPushButtonTask(composer.Task):
     REWARD_TYPES = SPARSE_REWARD
     OBSERVATION_TYPES = (STATE_OBS, VISUAL_OBS)
     ACTION_TYPES = (ABS_EEF_ACTION, ABS_JOINT_ACTION)
-
-    FRONT_TILTED_CAMERA_CONFIG = CameraConfig(np.array([0.0, -1.7, 0.7]), np.array([-0.7, -0.35, 0, 0.0]), 70)
-    WRIST_CAMERA_CONFIG = CameraConfig(
-        position=np.array([0.0, 0.05, 0]), orientation=np.array([0.0, 0.0, 0.999, 0.04]), fov=42, name="WristCamera"
-    )
 
     MAX_STEP_SIZE: float = 0.05
     # TIMESTEP IS MAIN DRIVER OF SIMULATION SPEED..
@@ -82,6 +48,11 @@ class RobotPushButtonTask(composer.Task):
         observation_type: str = VISUAL_OBS,
         action_type: str = ABS_JOINT_ACTION,
         image_resolution: int = 96,
+        scene_camera_position: np.ndarray = np.array([0.0, -1.7, 0.7]),
+        scene_camera_orientation: np.ndarray = np.array([-0.7, -0.35, 0, 0.0]),
+        use_wrist_camera: bool = True,
+        wrist_camera_position: np.ndarray = np.array([0.0, 0.05, 0]),
+        wrist_camera_orientation: np.ndarray = np.array([0.0, 0.0, 0.999, 0.04]),
         button_disturbances: bool = False,
     ) -> None:
         super().__init__()
@@ -113,12 +84,16 @@ class RobotPushButtonTask(composer.Task):
         # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
-        self.camera = Camera(self.FRONT_TILTED_CAMERA_CONFIG)
+        self.scene_camera_config = CameraConfig(scene_camera_position, scene_camera_orientation, 70)
+        self.camera = Camera(self.scene_camera_config)
         self._arena.attach(self.camera)
 
-        self.wrist_camera = Camera(self.WRIST_CAMERA_CONFIG)
-        self.wrist_camera.observables.rgb_image.name = "wrist_camera_rgb_image"
-        self.robot.attach(self.wrist_camera, self.robot.flange)
+        self.use_wrist_camera = use_wrist_camera
+        if use_wrist_camera:
+            self.wrist_camera_config = CameraConfig(wrist_camera_position, wrist_camera_orientation, 42)
+            self.wrist_camera = Camera(self.wrist_camera_config)
+            self.wrist_camera.observables.rgb_image.name = "wrist_camera_rgb_image"
+            self.robot.attach(self.wrist_camera, self.robot.flange)
 
         # create additional observables / Sensors
         self._task_observables = {}
@@ -145,16 +120,17 @@ class RobotPushButtonTask(composer.Task):
 
         elif self.observation_type == RobotPushButtonTask.VISUAL_OBS:
             self.camera.observables.rgb_image.enabled = True
-            self.wrist_camera.observables.rgb_image.enabled = True
+            if self.use_wrist_camera:
+                self.wrist_camera.observables.rgb_image.enabled = True
 
     def initialize_episode(self, physics, random_state):
         super().initialize_episode(physics, random_state)
-        robot_initial_pose = self.robot_spawn_space.sample()
+        robot_initial_pose = self.robot_spawn_space.sample(random_state)
         robot_initial_pose = np.concatenate([robot_initial_pose, TOP_DOWN_QUATERNION])
         self.robot.set_tcp_pose(physics, robot_initial_pose)
 
         # switch  position
-        switch_position = self.target_spawn_space.sample()
+        switch_position = self.target_spawn_space.sample(random_state)
         self.switch.set_pose(physics, position=switch_position)
 
         # print(f"target position: {target_position}")
@@ -357,4 +333,4 @@ if __name__ == "__main__":
     # plt.imshow(img)
     # plt.show()
 
-    viewer.launch(environment, policy=task.create_demonstration_policy(environment))
+    #viewer.launch(environment, policy=task.create_demonstration_policy(environment))

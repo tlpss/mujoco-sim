@@ -21,9 +21,13 @@ class EuclideanSpace:
             return True
         return False
 
-    def sample(self) -> np.ndarray:
+    def sample(self, random_state: np.random.RandomState) -> np.ndarray:
         return np.array(
-            [np.random.uniform(*self.x_range), np.random.uniform(*self.y_range), np.random.uniform(*self.z_range)]
+            [
+                random_state.uniform(*self.x_range),
+                random_state.uniform(*self.y_range),
+                random_state.uniform(*self.z_range),
+            ]
         )
 
     def create_visualization_site(self, worldbody, name: str):

@@ -126,7 +126,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
     def seed(self, seed):
         # set the seed of the random generator of the episode
         # will be applied during reset by the DMC env
-        self._env._fixed_random_state = np.random.RandomState(seed)
+        self._env._random_state = np.random.RandomState(seed)
         self._action_space.seed(seed)
         self._observation_space.seed(seed)
 
@@ -212,3 +212,32 @@ if __name__ == "__main__":
         done = term or trunc
     print(info)
     print(gym_env.dmc_env.task.is_goal_reached(gym_env.dmc_env.physics))
+
+
+    # check for determinism
+    from dm_control.composer import Environment
+
+    from mujoco_sim.environments.tasks.robot_push_button import RobotPushButtonTask
+
+    task = RobotPushButtonTask()
+    env = Environment(
+        task,
+        strip_singleton_obs_buffer_dim=True,
+        time_limit=RobotPushButtonTask.MAX_CONTROL_STEPS_PER_EPISODE * RobotPushButtonTask.CONTROL_TIMESTEP,
+    )
+
+    print("testing randomness")
+    env._random_state = np.random.RandomState(20)
+    obs = env.reset()
+    env._random_state = np.random.RandomState(20)
+    obs2 = env.reset()
+
+    print(obs.observation)
+    print(obs2.observation)
+
+    for key, value in obs.observation.items():
+        print(np.allclose(value, obs2.observation[key]))
+        print(np.allclose(value, obs2.observation[key], atol=1e-6))
+        print(np.allclose(value, obs2.observation[key], atol=1e-6))
+   
+  

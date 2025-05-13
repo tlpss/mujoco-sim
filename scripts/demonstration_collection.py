@@ -318,9 +318,15 @@ def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n
 
 if __name__ == "__main__":
     # import pygame
+
+    import numpy as np 
+    import random 
     import mujoco_sim  # noqa
 
+
+
     env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0")
+    env.seed(2025)
 
     dmc_env = env.unwrapped.dmc_env
 
