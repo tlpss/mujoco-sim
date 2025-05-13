@@ -6,22 +6,51 @@ from dm_control import composer, mjcf
 from dm_control.composer.observation import observable
 from dm_control.mujoco import Physics
 from dm_env import specs
-import mujoco
+from spatialmath import SO3, UnitQuaternion
 
-def camera_orientation_from_look_at(position: np.ndarray, look_at: np.ndarray, up: np.ndarray):
-    forward = look_at - position
-    forward = forward / np.linalg.norm(forward)
-    right = np.cross(up, forward)
-    right = right / np.linalg.norm(right)
-    up = np.cross(forward, right)
-    up = up / np.linalg.norm(up)
 
-    rot_matrix = np.array([right, up, forward])
-    # convert to quaternion
-    quat = np.zeros(4)
-    rot_matrix = rot_matrix.flatten()
-    mujoco.mju_mat2Quat(quat, rot_matrix)
-    return quat
+def rotation_matrix_to_quaternion(matrix):
+    matrix = SO3(matrix)
+    quat = UnitQuaternion(matrix)
+    return quat.A
+
+
+def camera_orientation_from_look_at(camera_position: np.ndarray, look_at: np.ndarray):
+    lookat_vector = look_at - camera_position
+    print(f"lookat_vector: {lookat_vector}")
+    if np.linalg.norm(lookat_vector) < 1e-6:
+        print("lookat_vector is zero")
+        # Handle the case where camera and target are very close to avoid division by zero
+        # Return an identity quaternion (no rotation) as a sensible default
+        return np.array([0.0, 0.0, 0.0, 1.0])
+
+    # Normalize the lookat vector to get the camera's local -z axis (view direction)
+    forward_direction = lookat_vector / np.linalg.norm(lookat_vector)
+    forward_direction = -forward_direction  # flip the direction
+
+    # The desired 'up' direction for the camera is the world's positive z-axis
+    world_up = np.array([0.0, 0.0, 1.0])
+
+    # Calculate the camera's local x-axis (right direction) by taking the cross product
+    # of the world up direction and the forward direction.
+    right_direction = np.cross(world_up, forward_direction)
+
+    # Normalize the right direction
+    right_direction = right_direction / np.linalg.norm(right_direction)
+
+    # Recalculate the camera's local y-axis (up direction) to ensure it's orthogonal
+    # to both the forward and right directions. This also ensures it's aligned with
+    # the world's z-axis as much as possible given the lookat constraint.
+    up_direction = np.cross(forward_direction, right_direction)
+
+    # Now we have the three axes of the camera's orientation as column vectors of a
+    # rotation matrix: [right | up | -forward]
+    rotation_matrix = np.column_stack([right_direction, up_direction, forward_direction])
+    print(f"rotation_matrix: {rotation_matrix}")
+    quaternion = rotation_matrix_to_quaternion(rotation_matrix)
+
+    return quaternion
+
 
 @dataclasses.dataclass
 class CameraConfig:
@@ -54,7 +83,9 @@ class Camera(composer.Entity):
             size=[0.045, 0.0125, 0.0125],
             rgba=[0, 0, 0, 1],
         )
-        # self.lens  = self._model.worldbody.add("geom", type="sphere", pos = self.config.position , size=[0.0125,0.0125], rgba=[0, 0, 0, 1])
+        self.lens = self._model.worldbody.add(
+            "geom", type="sphere", pos=self.config.position, size=[0.0125, 0.0125], rgba=[0, 0, 0, 1]
+        )
         self._camera = self._model.worldbody.add(
             "camera", mode="fixed", pos=self.config.position, quat=self.config.orientation, fovy=self.config.fov
         )
@@ -132,8 +163,8 @@ class CameraObservables(composer.Observables):
 
 
 if __name__ == "__main__":
-    position = np.array([1, 0,0])
+    position = np.array([0, -1.7, 0.7])
     look_at = np.array([0, 0, 0])
-    up = np.array([0, 0,1])
-    quaternion = camera_orientation_from_look_at(position, look_at, up)
+    up = np.array([0, 0, 1])
+    quaternion = camera_orientation_from_look_at(position, look_at)
     print(quaternion)
