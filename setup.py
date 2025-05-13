@@ -14,6 +14,8 @@ setuptools.setup(
         "spatialmath-python",
         "ur-analytic-ik",
         "robot_descriptions",
+        "torch",
+        "pygame"
     ],  # old API for now.
     # extras_require={"sb3": ["stable-baselines3", "tqdm", "rich", "wandb", "tensorboard"]},
     packages=find_packages(),

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import gymnasium
 import pygame
+import numpy as np 
 import torch
 
 
@@ -96,9 +97,15 @@ class LeRobotDatasetRecorder(DatasetRecorder):
 
         # state observations
         self.state_keys = [key for key in env.observation_space.spaces.keys() if key not in self.image_keys]
+
         for key in self.state_keys:
+            if "/" in key:
+                self.key_mapping_dict[key] = key.replace("/", "_")
+                lerobot_key = self.key_mapping_dict.get(key, key)
+            else:
+                lerobot_key = key
             shape = env.observation_space.spaces[key].shape
-            features[key] = {"dtype": "float32", "shape": shape, "names": None}
+            features[lerobot_key] = {"dtype": "float32", "shape": shape, "names": None}
 
         # add single 'state' observation that concatenates all state observations
         features["observation.state"] = {
@@ -118,42 +125,42 @@ class LeRobotDatasetRecorder(DatasetRecorder):
             features=features,
             use_videos=use_videos,
             image_writer_processes=0,
-            image_writer_threads=4 * num_cameras,
+            image_writer_threads=8,
         )
 
     def start_episode(self):
         pass
 
     def record(self, obs, action, reward, done, info):
-        env_timestamp = info.get("timestamp", self.lerobot_dataset.episode_buffer["size"] / self.fps)
 
         frame = {
-            "action": torch.from_numpy(action),
-            "next.reward": torch.tensor(reward),
-            "next.success": torch.tensor(done),
-            "seed": torch.tensor(0),  # TODO: store the seed
-            "timestamp": env_timestamp,
+            "action": torch.from_numpy(action).float(),
+            "next.reward": torch.tensor([reward]).float(),
+            "next.success": torch.tensor([done]),
+            "seed": torch.tensor([0]),  # TODO: store the seed
+            "task" : ""
         }
         for key in self.image_keys:
             lerobot_key = self.key_mapping_dict.get(key, key)
             frame[lerobot_key] = obs[key]
 
         for key in self.state_keys:
-            frame[key] = torch.from_numpy(obs[key])
+            lerobot_key = self.key_mapping_dict.get(key, key)
+            frame[lerobot_key] = torch.from_numpy(obs[key]).float()
 
         # concatenate all 'state' observations into a single tensor
-        state = torch.cat([frame[key].flatten() for key in self.state_keys])
+        state = torch.cat([frame[self.key_mapping_dict.get(key,key)].flatten() for key in self.state_keys])
         frame["observation.state"] = state
 
         self.lerobot_dataset.add_frame(frame)
 
     def save_episode(self):
-        self.lerobot_dataset.save_episode(task="")
+        self.lerobot_dataset.save_episode()
         self._n_recorded_episodes += 1
 
     def finish_recording(self):
         # computing statistics
-        self.lerobot_dataset.consolidate()
+        pass
 
     @property
     def n_recorded_episodes(self):
@@ -293,8 +300,6 @@ def collect_demonstrations(agent_callable, env, dataset_recorder):
 
 
 # data collection that is not blocking on user input or uses a UI, to use with remote machines for sim envs
-
-
 def collect_demonstrations_non_blocking(agent_callable, env, dataset_recorder, n_episodes=50):
     for _ in range(n_episodes):
         obs, info = env.reset()
@@ -329,8 +334,8 @@ if __name__ == "__main__":
         Path(__file__).parent / "dataset" / f"{id}",
         "point_reach",
         round(1 / env.unwrapped.dmc_env.control_timestep()),
-        use_videos=False,
+        use_videos=True,
     )
-    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=100)
+    collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=10)
     # set MUJOCO_GL=egl to run this on a remote machine
     # collect_demonstrations_non_blocking(action_callable, env, dataset_recorder, n_episodes=300)

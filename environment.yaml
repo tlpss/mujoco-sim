@@ -14,4 +14,5 @@ dependencies:
     - imageio
     - pytest
     - pre-commit
+    - -e lerobot/
     - -e .
