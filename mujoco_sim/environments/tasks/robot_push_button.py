@@ -84,13 +84,13 @@ class RobotPushButtonTask(composer.Task):
         # self.workspace_geom = self.robot_workspace.create_visualization_site(self._arena.mjcf_model.worldbody,"robot-workspace")
 
         # add Camera to scene
-        self.scene_camera_config = CameraConfig(scene_camera_position, scene_camera_orientation, 70)
+        self.scene_camera_config = CameraConfig(scene_camera_position, scene_camera_orientation, 70,image_height=self.image_resolution,image_width=self.image_resolution)
         self.camera = Camera(self.scene_camera_config)
         self._arena.attach(self.camera)
 
         self.use_wrist_camera = use_wrist_camera
         if use_wrist_camera:
-            self.wrist_camera_config = CameraConfig(wrist_camera_position, wrist_camera_orientation, 42)
+            self.wrist_camera_config = CameraConfig(wrist_camera_position, wrist_camera_orientation, 42,image_height=self.image_resolution,image_width=self.image_resolution)
             self.wrist_camera = Camera(self.wrist_camera_config)
             self.wrist_camera.observables.rgb_image.name = "wrist_camera_rgb_image"
             self.robot.attach(self.wrist_camera, self.robot.flange)
@@ -309,6 +309,7 @@ if __name__ == "__main__":
         observation_type=RobotPushButtonTask.VISUAL_OBS,
         action_type=RobotPushButtonTask.ABS_JOINT_ACTION,
         button_disturbances=True,
+        image_resolution=256,
     )
 
     # dump task xml
@@ -330,7 +331,8 @@ if __name__ == "__main__":
     print(environment.observation_spec())
     img = task.camera.get_rgb_image(environment.physics)
 
-    # plt.imshow(img)
-    # plt.show()
+    import matplotlib.pyplot as plt
+    plt.imshow(img)
+    plt.imsave("test.png", img)
 
     #viewer.launch(environment, policy=task.create_demonstration_policy(environment))
