@@ -77,10 +77,12 @@ class LeRobotDatasetRecorder(DatasetRecorder):
         # and stores as video.
 
         assert isinstance(env.observation_space, gymnasium.spaces.Dict), "Observation space should be a dict"
-        self.image_keys = [key for key in env.observation_space.spaces.keys() if "image" in key]
-        num_cameras = len(self.image_keys)
+        assert "pixels" in env.observation_space.keys(), "Observation space should contain 'pixels' key"
+        self.image_keys = env.observation_space["pixels"].keys()
+
+    
         for key in self.image_keys:
-            shape = env.observation_space.spaces[key].shape
+            shape = env.observation_space.spaces["pixels"][key].shape
 
             if not key.startswith("observation.images"):
                 lerobot_key = f"observation.images.{key}"
@@ -91,12 +93,13 @@ class LeRobotDatasetRecorder(DatasetRecorder):
                 self.key_mapping_dict[key] = lerobot_key.replace("/", "_")
             lerobot_key = self.key_mapping_dict[key]
             if use_videos:
-                features[lerobot_key] = {"dtype": "video", "names": ["channel", "height", "width"], "shape": shape}
+                features[lerobot_key] = {"dtype": "video", "names": ["height", "width", "channel"], "shape": shape}
             else:
                 features[lerobot_key] = {"dtype": "image", "shape": shape, "names": None}
 
         # state observations
-        self.state_keys = [key for key in env.observation_space.spaces.keys() if key not in self.image_keys]
+        if "agent_pos" in env.observation_space.keys():
+            self.state_keys = ["agent_pos"]
 
         for key in self.state_keys:
             if "/" in key:
@@ -142,7 +145,7 @@ class LeRobotDatasetRecorder(DatasetRecorder):
         }
         for key in self.image_keys:
             lerobot_key = self.key_mapping_dict.get(key, key)
-            frame[lerobot_key] = obs[key]
+            frame[lerobot_key] = obs["pixels"][key]
 
         for key in self.state_keys:
             lerobot_key = self.key_mapping_dict.get(key, key)

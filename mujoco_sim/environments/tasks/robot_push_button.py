@@ -97,6 +97,8 @@ class RobotPushButtonTask(composer.Task):
 
         # create additional observables / Sensors
         self._task_observables = {}
+        #TODO: use this to add robot state to observation space?
+
 
         self._configure_observables()
 

@@ -14,6 +14,54 @@ from dm_control.composer import Environment as DMCEnvironment
 from mujoco_sim.environments.dmc2gym import DMCEnvironmentAdapter
 from mujoco_sim.environments.tasks.point_reach import PointMassReachTask
 from mujoco_sim.environments.tasks.robot_push_button import RobotPushButtonTask
+import numpy as np 
+
+class LerobotGymWrapper(gymnasium.Wrapper):
+    def __init__(self, env, image_key_mapping, state_keys):
+        super().__init__(env)
+
+        self.image_key_mapping = image_key_mapping
+        self.state_keys = state_keys
+
+    @property
+    def observation_space(self):
+        agent_space = gymnasium.spaces.Box(low=-np.inf, high=np.inf, shape=(sum([self.env.observation_space[key].shape[0] for key in self.state_keys]),))
+        pix_spaces = {}
+        for key, new_key in self.image_key_mapping.items():
+            if key in self.env.observation_space.keys():
+                pix_spaces[new_key] = self.env.observation_space[key]
+
+        return gymnasium.spaces.Dict({
+            "agent_pos": agent_space,
+            "pixels": gymnasium.spaces.Dict(pix_spaces)
+        })
+
+    def transform_observation(self, observation):
+        new_observation = {}
+        new_observation["agent_pos"] = np.concatenate([observation[key] for key in self.state_keys],axis=0)
+        new_observation["pixels"] = {}
+        for key, new_key in self.image_key_mapping.items():
+            if key in observation:
+                new_observation["pixels"][new_key] = observation[key]
+        return new_observation
+    
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        return self.transform_observation(observation), reward, terminated, truncated, info
+    
+    def reset(self, **kwargs):
+        observation,info = self.env.reset(**kwargs)
+        return self.transform_observation(observation),info
+    
+
+    
+    @property
+    def action_space(self):
+        return self.env.action_space
+    
+
+    
+ 
 
 
 def make_point_mass_reach_env(task_class, max_steps, **kwargs):
@@ -22,42 +70,36 @@ def make_point_mass_reach_env(task_class, max_steps, **kwargs):
     gym_env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
     return gym_env
 
+def make_lerobot_env(task_class, max_steps, **kwargs):
+    env = task_class(**kwargs)
+    env = DMCEnvironment(env, strip_singleton_obs_buffer_dim=True, time_limit=max_steps * env.CONTROL_TIMESTEP)
+    env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
+    gym_env = LerobotGymWrapper(env,{"Camera/rgb_image": "scene", "ur5e/Camera/rgb_image": "wrist"},["ur5e/joint_configuration"])
+    return gym_env
 
 gymnasium.register(
     id="mujoco_sim/point_mass_reach-v0",
     entry_point=partial(make_point_mass_reach_env, PointMassReachTask, max_steps=50),
     kwargs={"observation_type": "visual_observations", "image_resolution": 64},
+    max_episode_steps=50,
 )
 
 gymnasium.register(
     id="mujoco_sim/robot_push_button_visual-v0",
-    entry_point=partial(make_point_mass_reach_env, RobotPushButtonTask, max_steps=100),
+    entry_point=partial(make_lerobot_env, RobotPushButtonTask, max_steps=100),
     kwargs={
-        "observation_type": RobotPushButtonTask.VISUAL_OBS,
-        "image_resolution": 96,
-        "action_type": RobotPushButtonTask.ABS_JOINT_ACTION,
     },
+    max_episode_steps=100,
 )
 
 
 if __name__ == "__main__":
 
     # list all envs
-    print(gymnasium.registry.keys())
-    import cv2
+    #print(gymnasium.registry.keys())
 
-    env = gymnasium.make("mujoco_sim/point_mass_reach-v0")
+    env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0", scene_camera_position=[0, 0, 1.0],image_resolution=96)
 
-    done = False
-    obs = env.reset()
-    action_policy = env.unwrapped._env.task.create_random_policy()
-    n = 0
-    while not done:
-        obs, reward, term, trunc, info = env.step(action_policy(obs))
-        n += 1
-        print(n)
-        done = term or trunc
-        print(done)
-        img = env.render()
-        cv2.imshow("img", img)
-        cv2.waitKey(1)
+    print(env.observation_space)
+    obs,_ = env.reset()
+    print(obs)

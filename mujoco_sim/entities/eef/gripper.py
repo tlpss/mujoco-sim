@@ -97,6 +97,9 @@ class Robotiq2f85(ParallelGripper):
         # can check qvel for a number of steps if we keep track of them?
         raise NotImplementedError
 
+#TODO: add observable!
+
+
 
 if __name__ == "__main__":
     gripper = Robotiq2f85()
