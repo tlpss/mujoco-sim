@@ -80,7 +80,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         self,
         env: Environment,
         flatten_observation_space: bool = False,
-        render_camera_id=-1,  # the free camera that is always available.
+        render_camera_id=0,  # the free camera that is always available.
         render_dims: tuple[int, int] = (256, 256),
         render_fps: int = 10,
     ):
