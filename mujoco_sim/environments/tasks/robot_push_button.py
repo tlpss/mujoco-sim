@@ -47,7 +47,7 @@ class RobotPushButtonTask(composer.Task):
         reward_type: str = SPARSE_REWARD,
         observation_type: str = VISUAL_OBS,
         action_type: str = ABS_JOINT_ACTION,
-        image_resolution: int = 96,
+        image_resolution: int = 128,
         scene_camera_position: np.ndarray = np.array([0.0, -1.7, 0.7]),
         scene_camera_orientation: np.ndarray = np.array([-0.7, -0.35, 0, 0.0]),
         use_wrist_camera: bool = True,

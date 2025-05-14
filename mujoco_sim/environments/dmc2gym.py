@@ -80,7 +80,7 @@ class DMCEnvironmentAdapter(gymnasium.Env):
         self,
         env: Environment,
         flatten_observation_space: bool = False,
-        render_camera_id=0,  # the free camera that is always available.
+        render_camera_id=-1, # free space camera that is always available
         render_dims: tuple[int, int] = (256, 256),
         render_fps: int = 10,
     ):
@@ -221,12 +221,15 @@ if __name__ == "__main__":
 
     from mujoco_sim.environments.tasks.robot_push_button import RobotPushButtonTask
 
-    task = RobotPushButtonTask()
+    task = RobotPushButtonTask(
+        scene_camera_position=(0.0, -0.4, 1),
+        scene_camera_orientation=(0.0,0.0,0.0,1.0))
     env = Environment(
         task,
         strip_singleton_obs_buffer_dim=True,
         time_limit=RobotPushButtonTask.MAX_CONTROL_STEPS_PER_EPISODE * RobotPushButtonTask.CONTROL_TIMESTEP,
     )
+
 
     print("testing randomness")
     env._random_state = np.random.RandomState(20)
@@ -244,3 +247,8 @@ if __name__ == "__main__":
         print(np.allclose(value, obs2.observation[key], atol=1e-6))
    
   
+
+    env = DMCEnvironmentAdapter(env, flatten_observation_space=False, render_dims=(128, 128))
+    obs,_ = env.reset()
+    import matplotlib.pyplot as plt
+    plt.imsave("test.png",env.physics.render(height=256, width=256, camera_id=1))
