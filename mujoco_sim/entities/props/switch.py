@@ -53,9 +53,20 @@ class Switch(composer.Entity):
         self.was_pressed = self._is_pressed
         self._is_pressed = current_force >= self._min_force and current_force <= self._max_force
 
+ 
+        # Debounce logic: prevent reactivation for a certain number of steps
+        if not hasattr(self, "_debounce_counter"):
+            self._debounce_counter = 0
+
+        if self._debounce_counter > 0:
+            self._debounce_counter -= 1
+            return
+    
         # flip state on rising edge
         if self._is_pressed and not self.was_pressed:
             self._is_active = not self._is_active
+            self._debounce_counter = 50  # Set debounce duration
+        
         physics.bind(self._button_geom).rgba = [0, 1, 0, 1] if self._is_active else [1, 0, 0, 1]
         self._num_pressed_steps += int(self._is_pressed)
 
