@@ -73,7 +73,7 @@ def make_point_mass_reach_env(task_class, max_steps, **kwargs):
 def make_lerobot_env(task_class, max_steps, **kwargs):
     env = task_class(**kwargs)
     env = DMCEnvironment(env, strip_singleton_obs_buffer_dim=True, time_limit=max_steps * env.CONTROL_TIMESTEP)
-    env = DMCEnvironmentAdapter(env, flatten_observation_space=False)
+    env = DMCEnvironmentAdapter(env, flatten_observation_space=False, render_dims=(256, 256),render_camera_id=0)
     gym_env = LerobotGymWrapper(env,{"Camera/rgb_image": "scene", "ur5e/Camera/rgb_image": "wrist"},["ur5e/joint_configuration"])
     return gym_env
 
@@ -86,10 +86,10 @@ gymnasium.register(
 
 gymnasium.register(
     id="mujoco_sim/robot_push_button_visual-v0",
-    entry_point=partial(make_lerobot_env, RobotPushButtonTask, max_steps=100),
+    entry_point=partial(make_lerobot_env, RobotPushButtonTask, max_steps=150),
     kwargs={
     },
-    max_episode_steps=100,
+    max_episode_steps=150,
 )
 
 
@@ -98,8 +98,11 @@ if __name__ == "__main__":
     # list all envs
     #print(gymnasium.registry.keys())
 
-    env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0", scene_camera_position=[0, 0, 1.0],image_resolution=96)
+    env = gymnasium.make("mujoco_sim/robot_push_button_visual-v0",image_resolution=256,use_wrist_camera=False)
 
     print(env.observation_space)
     obs,_ = env.reset()
+    img = env.render()
     print(obs)
+    import matplotlib.pyplot as plt
+    plt.imsave("test.png",img)
